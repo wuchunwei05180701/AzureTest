@@ -8,11 +8,12 @@ export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token);
 export const removeToken = () => localStorage.removeItem(TOKEN_KEY);
 
 // ===== Axios Instance =====
-// 偵測是否在 /AzureTest/ 路徑下（Nginx 反向代理）
+// VITE_API_BASE_URL: 部署時指向 backend URL，本地開發用 proxy
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const BASE_PREFIX = window.location.pathname.startsWith('/AzureTest') ? '/AzureTest' : '';
 
 const api = axios.create({
-  baseURL: `${BASE_PREFIX}/api`,
+  baseURL: `${API_BASE}${BASE_PREFIX}/api`,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

@@ -9,8 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 
 from config import settings
 from core.database import init_global_db, close_global_db
@@ -122,38 +121,7 @@ async def health_check():
     }
 
 
-# === 前端靜態檔案 Serve ===
-STATIC_DIR = Path(__file__).parent / "static"
-
-if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
-    # 掛載靜態資源（CSS, JS, images 等）
-    assets_dir = STATIC_DIR / "assets"
-    if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
-
-    # SPA Fallback：所有非 /api 的請求都回傳 index.html
-    @app.get("/{full_path:path}", tags=["前端"])
-    async def serve_spa(request: Request, full_path: str):
-        """SPA fallback - 非 API 路由都回傳 index.html"""
-        # 嘗試找靜態檔案
-        file_path = STATIC_DIR / full_path
-        if full_path and file_path.is_file():
-            return FileResponse(file_path)
-        # 否則回傳 index.html（讓 React Router 處理路由）
-        return FileResponse(STATIC_DIR / "index.html")
-
-    logger.info(f"📁 前端靜態檔案目錄: {STATIC_DIR}")
-else:
-    @app.get("/{full_path:path}", tags=["前端"])
-    async def no_frontend(full_path: str):
-        """前端尚未建置"""
-        return HTMLResponse(
-            "<h1>Frontend not built</h1>"
-            "<p>Run: <code>cd Azure/azure-portal && npm run build</code></p>",
-            status_code=404,
-        )
-
-    logger.warning(f"⚠️ 前端靜態檔案不存在: {STATIC_DIR}")
+# === 前端已分離部署到 portalpilotfe，Backend 僅提供 API ===
 
 
 if __name__ == "__main__":
