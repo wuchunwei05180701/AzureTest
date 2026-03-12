@@ -1,0 +1,16 @@
+# Binary files - prevent line ending conversion
+*.so binary
+*.dylib binary
+*.pyd binary
+*.whl binary
+*.egg binary
+*.tar.gz binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
