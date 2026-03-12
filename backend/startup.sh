@@ -13,6 +13,16 @@ SITE_PACKAGES="/home/site/wwwroot/.python_packages/lib/site-packages"
 echo "=== CTBC AI Portal Startup Begin ==="
 echo "Python version: $(python3 --version)"
 
+# 清理 Oryx 殘留（避免覆蓋已打包的 .python_packages）
+if [ -f /home/site/wwwroot/oryx-manifest.toml ]; then
+    echo "Removing stale Oryx manifest..."
+    rm -f /home/site/wwwroot/oryx-manifest.toml
+fi
+if [ -f /home/site/wwwroot/output.tar.zst ]; then
+    echo "Removing stale Oryx output archive..."
+    rm -f /home/site/wwwroot/output.tar.zst
+fi
+
 if [ ! -d "$SITE_PACKAGES" ]; then
     echo "ERROR: Package directory not found: $SITE_PACKAGES"
     ls -la /home/site/wwwroot/
