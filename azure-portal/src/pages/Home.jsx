@@ -649,7 +649,11 @@ const Home = () => {
                 className="agent-preview-icon"
                 style={{ background: agent.color + '20', color: agent.color }}
               >
-                {agent.icon}
+                {agent.iconType === 'image_url' && agent.icon ? (
+                  <img src={agent.icon} alt={agent.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                ) : (
+                  agent.icon || '🤖'
+                )}
               </div>
               <div className="agent-preview-info">
                 <div className="agent-preview-name">{agent.name}</div>
