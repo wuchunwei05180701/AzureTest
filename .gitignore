@@ -15,7 +15,7 @@ __pycache__/
 dist/
 dist-ssr/
 build/
-backend/static/
+# backend/static/ is committed (frontend build output for pm2 serve)
 
 # Uploaded files
 backend/uploads/
