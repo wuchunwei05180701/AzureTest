@@ -25,6 +25,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_admin_user():
+    """啟動時自動建立預設 Admin 帳號（若不存在）"""
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from core.database import GlobalSessionLocal
+    from models.global_models import UserRouteMap
+
+    async with GlobalSessionLocal() as session:
+        result = await session.execute(
+            select(UserRouteMap).where(UserRouteMap.role == "super_admin").limit(1)
+        )
+        if result.scalars().first():
+            logger.info("✅ Admin 帳號已存在，跳過建立")
+            return
+
+        now = datetime.now(timezone.utc)
+        admin = UserRouteMap(
+            email="admin@portal.com",
+            name="Admin",
+            department="IT",
+            country_code="TW",
+            role="super_admin",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(admin)
+        await session.commit()
+        logger.info("✅ 已自動建立預設 Admin 帳號: admin@portal.com")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """應用程式生命週期管理"""
@@ -37,6 +68,8 @@ async def lifespan(app: FastAPI):
     try:
         await init_global_db()
         logger.info("✅ Global DB (台灣 PostgreSQL) 已連線")
+        # 自動建立預設 Admin 帳號（若不存在）
+        await _ensure_admin_user()
     except Exception as e:
         logger.error(f"❌ Global DB 連線失敗: {e}")
 
