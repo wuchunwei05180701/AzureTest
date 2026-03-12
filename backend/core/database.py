@@ -49,9 +49,17 @@ async def get_global_db() -> AsyncSession:
 
 
 async def init_global_db():
-    """初始化 Global DB（建立所有表）"""
-    async with global_engine.begin() as conn:
-        await conn.run_sync(GlobalBase.metadata.create_all)
+    """初始化 Global DB（建立所有表，跳過已存在的）"""
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        async with global_engine.begin() as conn:
+            await conn.run_sync(GlobalBase.metadata.create_all)
+    except Exception as e:
+        if "already exists" in str(e) or "duplicate key" in str(e):
+            logger.info("ℹ️ Global DB 表已存在，跳過建立")
+        else:
+            raise
 
 
 async def close_global_db():

@@ -65,9 +65,15 @@ class LocalDatabaseFactory:
                 class_=AsyncSession,
                 expire_on_commit=False,
             )
-            # 建立表
-            async with engine.begin() as conn:
-                await conn.run_sync(LocalBase.metadata.create_all)
+            # 建立表（跳過已存在的）
+            try:
+                async with engine.begin() as conn:
+                    await conn.run_sync(LocalBase.metadata.create_all)
+            except Exception as e:
+                if "already exists" in str(e) or "duplicate key" in str(e):
+                    logger.info(f"[{country_code}] PostgreSQL 表已存在，跳過建立")
+                else:
+                    raise
             logger.info(f"[{country_code}] PostgreSQL 連線已建立")
 
         # MongoDB（選填，連線失敗不影響主程式）
