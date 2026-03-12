@@ -374,7 +374,7 @@ export const chatAPI = {
           delete payload.images;
         }
 
-        const response = await fetch(`${BASE_PREFIX}/api/chat/stream`, {
+        const response = await fetch(`${API_BASE}${BASE_PREFIX}/api/chat/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
