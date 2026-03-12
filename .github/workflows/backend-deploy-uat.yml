@@ -1,0 +1,96 @@
+# ========================================
+# CTBC AI Portal Backend - Auto Deploy (UAT)
+# Push to master → 打包 backend + static → 部署 App Service
+# ========================================
+# 必要 GitHub Secrets:
+#   AZURE_PORTAL_PUBLISH_PROFILE - App Service Publish Profile
+#   AZURE_CREDENTIALS (選填) - 用於重啟 App Service
+# ========================================
+
+name: 'Backend Deploy (UAT)'
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - '!backend/tests/**'
+
+  workflow_dispatch:
+
+env:
+  APP_NAME: YOUR_BACKEND_APP_NAME
+
+jobs:
+  deploy:
+    name: '打包 + 部署 Backend'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: '設定 UAT 環境變數'
+        working-directory: backend
+        run: |
+          if [ -f ".env.uat" ]; then
+            cp .env.uat .env
+          elif [ -f ".env.pilot" ]; then
+            cp .env.pilot .env
+          else
+            echo "WARNING: No .env.uat or .env.pilot found"
+          fi
+
+      - name: '清理 Python 套件快取'
+        working-directory: backend
+        run: |
+          find .python_packages -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.rst" \) -delete 2>/dev/null || true
+          find .python_packages -type d \( -name "__pycache__" -o -name "tests" -o -name "test" -o -name "docs" \) -exec rm -rf {} + 2>/dev/null || true
+
+      - name: '禁用 Oryx Build'
+        working-directory: backend
+        run: |
+          echo '[config]' > .deployment
+          echo 'SCM_DO_BUILD_DURING_DEPLOYMENT = false' >> .deployment
+
+      - name: '打包 Backend'
+        working-directory: backend
+        run: |
+          zip -r "${{ github.workspace }}/backend.zip" . \
+            -x "__pycache__/*" "*.pyc" "*.pyo" \
+               "tests/*" ".git/*" ".pytest_cache/*" \
+               "*.egg-info/*" "*.log" \
+               ".venv/*" "venv/*"
+
+      - name: '驗證 zip'
+        run: |
+          python3 << 'PY'
+          import zipfile
+          with zipfile.ZipFile("backend.zip") as zf:
+              files = [n for n in zf.namelist() if not n.endswith("/")]
+              for req in ["startup.sh", "main.py", "config.py"]:
+                  assert req in files, f"ERROR: 缺少 {req}"
+          print("backend.zip 驗證通過")
+          PY
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_PORTAL_PUBLISH_PROFILE }}
+          package: backend.zip
+
+      - name: '重啟 App Service'
+        continue-on-error: true
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: '執行重啟'
+        continue-on-error: true
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az webapp restart --name ${{ env.APP_NAME }} --resource-group YOUR_RESOURCE_GROUP 2>&1 || \
+            echo "重啟失敗，可能需要更新 AZURE_CREDENTIALS secret"
+            echo "部署完成"

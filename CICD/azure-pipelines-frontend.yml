@@ -1,0 +1,155 @@
+# ========================================
+# CTBC AI Portal Frontend - ADO Build + Deploy Pipeline
+# 觸發: push 到 20* branch (azure-portal/) → npm build → 打包含 static 的 backend → ZIP Deploy
+# ========================================
+# 注意：前端 build 到 backend/static/，由 FastAPI 統一 serve
+# 所以部署的是整包 backend（含 static 資料夾）
+
+trigger:
+  branches:
+    include:
+      - '20*'
+  paths:
+    include:
+      - 'azure-portal/**'
+    exclude:
+      - 'README.md'
+      - 'docs/**'
+
+pr: none
+
+variables:
+  appServiceName: 'YOUR_BACKEND_APP_NAME'
+  resourceGroup: 'YOUR_RESOURCE_GROUP'
+  azureSubscription: 'YOUR_AZURE_SUBSCRIPTION'
+  nodeVersion: '20.x'
+  pythonVersion: '3.10'
+
+stages:
+  # ========================================
+  # Stage 1: Build - npm build + 打包
+  # ========================================
+  - stage: Build
+    displayName: 'Build Frontend + Package'
+    pool:
+      name: 'SIT_CI_POOL_EAMP'
+    jobs:
+      - job: BuildAndPackage
+        displayName: 'Build Frontend & Package Backend'
+        steps:
+          - checkout: self
+            fetchDepth: 1
+
+          - task: NodeTool@0
+            displayName: 'Use Node.js $(nodeVersion)'
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          # 安裝 + Build 前端
+          - script: |
+              cd azure-portal
+              npm ci
+              npm run build
+              echo "Frontend built to ../backend/static/"
+            displayName: 'Install & Build Frontend'
+
+          # 驗證 build 產出
+          - script: |
+              if [ ! -f "backend/static/index.html" ]; then
+                echo "ERROR: backend/static/index.html not found"
+                exit 1
+              fi
+              echo "Frontend build verified"
+            displayName: 'Verify Frontend Build'
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python $(pythonVersion)'
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+
+          # 設定 UAT 環境
+          - script: |
+              cd backend
+              if [ -f ".env.uat" ]; then
+                cp .env.uat .env
+                echo "Copied .env.uat -> .env"
+              fi
+            displayName: 'Setup UAT Environment'
+
+          # 清理快取
+          - script: |
+              cd backend
+              find .python_packages -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.rst" \) -delete 2>/dev/null || true
+              find .python_packages -type d \( -name "__pycache__" -o -name "tests" -o -name "test" -o -name "docs" \) -exec rm -rf {} + 2>/dev/null || true
+            displayName: 'Clean Python Cache'
+
+          # 禁用 Oryx Build
+          - script: |
+              cd backend
+              echo '[config]' > .deployment
+              echo 'SCM_DO_BUILD_DURING_DEPLOYMENT = false' >> .deployment
+            displayName: 'Disable Oryx Build'
+
+          # 打包（含 static）
+          - script: |
+              cd backend
+              zip -r $(Build.ArtifactStagingDirectory)/portal.zip . \
+                -x "__pycache__/*" "*.pyc" "*.pyo" \
+                   "tests/*" ".git/*" ".pytest_cache/*" \
+                   "*.egg-info/*" "*.log" \
+                   ".venv/*" "venv/*"
+            displayName: 'Package Backend + Static ZIP'
+
+          # 驗證
+          - script: |
+              python3 << 'PY'
+              import zipfile
+              with zipfile.ZipFile("$(Build.ArtifactStagingDirectory)/portal.zip") as zf:
+                  files = [n for n in zf.namelist() if not n.endswith("/")]
+                  for req in ["startup.sh", "main.py", "static/index.html"]:
+                      assert req in files, f"ERROR: missing {req}"
+              print("portal.zip validated OK")
+              PY
+            displayName: 'Validate ZIP'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifact'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'portal-drop'
+              publishLocation: 'Container'
+
+  # ========================================
+  # Stage 2: Deploy - ZIP Deploy 到 App Service
+  # ========================================
+  - stage: Deploy
+    displayName: 'Deploy to UAT'
+    dependsOn: Build
+    condition: succeeded()
+    pool:
+      name: 'SIT_CD_POOL_LINUX'
+    jobs:
+      - deployment: DeployPortal
+        displayName: 'Deploy Portal to App Service'
+        environment: 'UAT'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebApp@1
+                  displayName: 'ZIP Deploy to App Service'
+                  inputs:
+                    azureSubscription: '$(azureSubscription)'
+                    appType: 'webAppLinux'
+                    appName: '$(appServiceName)'
+                    package: '$(Pipeline.Workspace)/portal-drop/portal.zip'
+                    startUpCommand: 'bash startup.sh'
+
+                - task: AzureAppServiceManage@0
+                  displayName: 'Restart App Service'
+                  inputs:
+                    azureSubscription: '$(azureSubscription)'
+                    Action: 'Restart Azure App Service'
+                    WebAppName: '$(appServiceName)'
+                  continueOnError: true

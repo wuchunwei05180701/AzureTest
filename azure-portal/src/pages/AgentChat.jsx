@@ -748,7 +748,11 @@ const AgentChat = () => {
                   color: agent.color,
                 }}
               >
-                {agent.icon}
+                {agent.iconType === 'image_url' && agent.icon ? (
+                  <img src={agent.icon} alt={agent.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                ) : (
+                  agent.icon || '🤖'
+                )}
               </div>
               <div className="agent-panel-info">
                 <div className="agent-panel-name">{agent.name}</div>

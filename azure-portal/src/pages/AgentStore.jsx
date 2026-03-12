@@ -111,7 +111,11 @@ const AgentStore = () => {
                   color: agent.color || '#2aabb3',
                 }}
               >
-                {agent.icon || '🤖'}
+                {agent.iconType === 'image_url' && agent.icon ? (
+                  <img src={agent.icon} alt={agent.name} style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover' }} />
+                ) : (
+                  agent.icon || '🤖'
+                )}
               </div>
 
               {/* 名稱 */}

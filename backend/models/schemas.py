@@ -79,6 +79,7 @@ class AgentResponse(BaseModel):
     name: str
     agent_config_json: Dict[str, Any] = {}
     icon: Optional[str] = None
+    icon_type: Optional[str] = None
     color: Optional[str] = None
     description: Optional[str] = None
     is_published: bool = False

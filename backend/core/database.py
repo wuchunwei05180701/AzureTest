@@ -8,10 +8,13 @@ from sqlalchemy.orm import DeclarativeBase
 
 from config import settings
 
-# 建立不驗證證書的 SSL context（適用於 RDS）
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+# SSL context（僅在 DB_SSL_ENABLED=true 時啟用）
+_connect_args = {}
+if settings.DB_SSL_ENABLED:
+    _ssl_context = ssl.create_default_context()
+    _ssl_context.check_hostname = False
+    _ssl_context.verify_mode = ssl.CERT_NONE
+    _connect_args["ssl"] = _ssl_context
 
 # Global DB 非同步引擎
 global_engine = create_async_engine(
@@ -20,7 +23,7 @@ global_engine = create_async_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    connect_args={"ssl": ssl_context},
+    connect_args=_connect_args,
 )
 
 # Global DB Session 工廠

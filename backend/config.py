@@ -22,6 +22,9 @@ class Settings:
     OTP_EXPIRE_MINUTES: int = int(os.getenv("OTP_EXPIRE_MINUTES", "10"))
     OTP_MAX_RETRIES: int = int(os.getenv("OTP_MAX_RETRIES", "5"))
 
+    # === Database SSL ===
+    DB_SSL_ENABLED: bool = os.getenv("DB_SSL_ENABLED", "false").lower() in ("true", "1", "yes")
+
     # === Global DB (台灣 PostgreSQL) ===
     GLOBAL_DB_HOST: str = os.getenv("GLOBAL_DB_HOST", "localhost")
     GLOBAL_DB_PORT: int = int(os.getenv("GLOBAL_DB_PORT", "5432"))
@@ -96,13 +99,14 @@ class Settings:
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     SMTP_FROM: str = os.getenv("SMTP_FROM", "")
 
-    # === Agatha Public API ===
-    AGATHA_API_URL: str = os.getenv(
-        "AGATHA_API_URL",
-        "https://uat.heph-ai.net/agatha/public/api/public-api-keys/chat",
-    )
+    # === Agatha Partner API ===
+    AGATHA_API_BASE_URL: str = os.getenv("AGATHA_API_BASE_URL", "http://localhost:8000")
     AGATHA_API_KEY: str = os.getenv("AGATHA_API_KEY", "")
     AGATHA_API_TIMEOUT: int = int(os.getenv("AGATHA_API_TIMEOUT", "120"))
+
+    @property
+    def AGATHA_PARTNER_API_URL(self) -> str:
+        return f"{self.AGATHA_API_BASE_URL}/api/v1/partner"
 
     # === Portal MongoDB（對話歷史專用，獨立於 Local DB） ===
     PORTAL_MONGO_URI: str = os.getenv("PORTAL_MONGO_URI", "")

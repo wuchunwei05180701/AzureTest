@@ -124,6 +124,7 @@ export function adaptAgent(apiData) {
     model: configJson.model || 'unknown',
     status: apiData.is_published ? '可用' : '不可用',
     icon: apiData.icon ?? '',
+    iconType: apiData.icon_type ?? '',
     color: apiData.color ?? '',
     description: apiData.description ?? '',
     acl: acl ? {

@@ -32,7 +32,7 @@ const App = () => {
         <CountryProvider>
           <LanguageProvider>
             <AntdLocaleWrapper>
-              <BrowserRouter basename="/AzureTest">
+              <BrowserRouter basename="">
                 <Routes>
                   <Route path="/login" element={<Login />} />
                   <Route element={<ProtectedRoute />}>

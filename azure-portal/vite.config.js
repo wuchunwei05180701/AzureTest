@@ -5,14 +5,14 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/AzureTest/',
+  base: '/',
   server: {
     port: 8079,
     host: '0.0.0.0',
-    allowedHosts: ['uat.heph-ai.net'],
+    allowedHosts: ['uat.heph-ai.net', 'localhost', '127.0.0.1'],
     proxy: {
       '/api': {
-        target: 'http://localhost:8079',
+        target: 'http://localhost:8180',
         changeOrigin: true,
       },
     },

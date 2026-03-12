@@ -1,37 +1,36 @@
 """
-對話 API：整合 Agatha Public API（支援 Streaming SSE + 非 Streaming fallback）
+對話 API：整合 Agatha Partner API（支援 Streaming SSE）
 + 對話歷史管理（Session + Message 雙 Collection）
 
 MongoDB Collections（Portal 專用 DB）：
   - ctbc_portal_sessions: 對話 Session
   - ctbc_portal_messages: 每條訊息
 
-Agatha Public API 端點：
-  POST https://uat.heph-ai.net/agatha/public/api/public-api-keys/chat
+Agatha Partner API 端點：
+  POST /api/v1/partner/sessions — 建立 Session
+  POST /api/v1/partner/sessions/{session_id}/chat — SSE 串流聊天
 
 流程：
   前端 POST /api/chat/stream
-    → 後端嘗試 streaming → Agatha API
-    → 如果 streaming 失敗，fallback 到非 streaming
+    → 後端建立 Partner Session（或使用既有 session）
+    → 呼叫 Partner API chat（SSE streaming）
     → SSE 回傳給前端 + 存入 Portal MongoDB
 """
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 
 from config import settings
-from core.database import GlobalSessionLocal
 from core.portal_mongo import get_sessions_collection, get_messages_collection
 from core.security import get_current_user_payload
+from services import agatha_partner_client
 from services.pii_service import get_pii_service
-from models.global_models import AgentMaster
 from models.schemas import (
     ChatCreate,
     ChatHistoryItem,
@@ -47,43 +46,20 @@ from models.schemas import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Agatha Public API 的 httpx 客戶端（模組級別，重複使用）
-_agatha_client: httpx.AsyncClient | None = None
-
-
-def _get_agatha_client() -> httpx.AsyncClient:
-    """取得或建立 Agatha API 的 httpx 客戶端"""
-    global _agatha_client
-    if _agatha_client is None or _agatha_client.is_closed:
-        _agatha_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(settings.AGATHA_API_TIMEOUT, connect=10.0),
-            verify=False,
-            headers={
-                "User-Agent": "CTBC-AI-Portal/1.0",
-                "Accept": "application/json",
-            },
-        )
-    return _agatha_client
-
-
 # ============================================================
 # 工具函式
 # ============================================================
 
 
 async def _get_agent_name(agent_id: str) -> str:
-    """從 AgentMaster 查詢 Agent 名稱"""
+    """從 Agatha Partner API 查詢 Agent 名稱"""
     try:
-        async with GlobalSessionLocal() as session:
-            result = await session.execute(
-                select(AgentMaster.name).where(
-                    AgentMaster.agent_id == UUID(agent_id)
-                )
-            )
-            name = result.scalar_one_or_none()
-            return name or f"Agent {agent_id[:8]}"
+        agent = await agatha_partner_client.get_agent(agent_id)
+        if agent:
+            return agent.get("name", f"Agent {agent_id[:8]}")
     except Exception:
-        return f"Agent {agent_id[:8]}"
+        pass
+    return f"Agent {agent_id[:8]}"
 
 
 async def _save_to_portal(
@@ -207,45 +183,39 @@ async def chat_stream(
     email = payload["sub"]
     country = payload.get("country", "TW")
 
-    # 查詢 Agent 設定，判斷是否啟用 Agatha
-    agatha_enabled = False
-    agent_name = ""
-    try:
-        async with GlobalSessionLocal() as session:
-            result = await session.execute(
-                select(AgentMaster).where(
-                    AgentMaster.agent_id == UUID(body.agent_id)
-                )
-            )
-            agent = result.scalar_one_or_none()
-            if agent:
-                agent_name = agent.name or ""
-                if isinstance(agent.agent_config_json, dict):
-                    agatha_enabled = agent.agent_config_json.get("agatha_enabled", False)
-    except Exception as e:
-        logger.warning(f"⚠️ 查詢 Agent 設定失敗: {e}, 將使用 mock 回覆")
+    # 從 Partner API 取得 Agent 名稱
+    agent_name = await _get_agent_name(body.agent_id)
 
-    if not agent_name:
-        agent_name = await _get_agent_name(body.agent_id)
-
-    # 如果啟用 Agatha，檢查 API Key
-    if agatha_enabled and not settings.AGATHA_API_KEY:
+    # 檢查 API Key
+    if not settings.AGATHA_API_KEY:
         raise HTTPException(
             status_code=500,
             detail="Agatha API Key 尚未設定，請聯繫管理員",
         )
 
-    # 如果是延續對話，從 session 取出 thread_id
-    existing_thread_id = body.session_id  # 向後相容：舊前端可能傳 thread_id
+    # 取得或建立 Agatha Partner Session
+    # portal session_id (sess-xxx) 存在 MongoDB，agatha_session_id 存在 thread_id 欄位
+    agatha_session_id = None
     if body.session_id and body.session_id.startswith("sess-"):
-        # 新格式：session_id，需要查 MongoDB 取 thread_id
         sessions_col = get_sessions_collection()
         if sessions_col is not None:
             doc = await sessions_col.find_one({"session_id": body.session_id})
             if doc:
-                existing_thread_id = doc.get("thread_id")
-            else:
-                existing_thread_id = None
+                agatha_session_id = doc.get("thread_id")
+
+    # 如果沒有 agatha session，建立一個新的
+    if not agatha_session_id:
+        try:
+            session_data = await agatha_partner_client.create_session(
+                agent_id=body.agent_id,
+                external_user_id=email,
+                metadata={"country": country},
+            )
+            agatha_session_id = session_data.get("session_id")
+            logger.info(f"✅ 新 Partner Session: {agatha_session_id}")
+        except Exception as e:
+            logger.error(f"❌ 建立 Partner Session 失敗: {e}")
+            raise HTTPException(status_code=502, detail=f"無法建立聊天 Session: {e}")
 
     # 提取圖片列表
     images = body.images or []
@@ -254,8 +224,8 @@ async def chat_stream(
 
     logger.info(
         f"🤖 Chat stream: user={email}, agent={body.agent_id}, "
-        f"agatha={agatha_enabled}, session_id={body.session_id}, "
-        f"thread_id={existing_thread_id}, "
+        f"session_id={body.session_id}, "
+        f"agatha_session={agatha_session_id}, "
         f"images={len(images)}, "
         f"query={body.message[:50]}..."
     )
@@ -300,7 +270,7 @@ async def chat_stream(
     async def stream_generator():
         """SSE 串流產生器"""
         full_content = ""
-        final_thread_id = existing_thread_id
+        final_thread_id = agatha_session_id
         final_session_id = body.session_id if (body.session_id and body.session_id.startswith("sess-")) else None
 
         # 如果有 PII 警告，先發送警告事件
@@ -332,207 +302,81 @@ async def chat_stream(
             return
 
         # ============================================================
-        # 非 Agatha Agent → Mock 回覆
+        # 呼叫 Agatha Partner API (SSE Streaming)
         # ============================================================
-        if not agatha_enabled:
-            mock_reply = (
-                f"已收到您的訊息：「{body.message}」。\n\n"
-                "此 Agent 尚未連接 AI 服務，目前為模擬回覆模式。"
-            )
-            full_content = mock_reply
-            yield _sse_json({
-                "type": "content",
-                "data": mock_reply,
-                "accumulated": mock_reply,
-            })
-
-            # 存入 Portal MongoDB
-            try:
-                final_session_id = await _save_to_portal(
-                    email=email,
-                    country=country,
-                    agent_id=body.agent_id,
-                    agent_name=agent_name,
-                    user_message=body.message,
-                    assistant_message=full_content,
-                    session_id=final_session_id,
-                    thread_id=None,
-                    images=images if images else None,
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ 儲存 mock 對話失敗: {e}")
-
-            yield _sse_json({
-                "type": "complete",
-                "content": mock_reply,
-                "thread_id": None,
-                "session_id": final_session_id,
-            })
-            yield "data: [DONE]\n\n"
-            return
-
-        # ============================================================
-        # Agatha Agent → 呼叫 Agatha Public API
-        # ============================================================
-        client = _get_agatha_client()
-
-        # === 先嘗試 Streaming 模式 ===
-        streaming_success = False
         try:
-            agatha_payload = {
-                "api_key": settings.AGATHA_API_KEY,
-                "query": redacted_message,
-                "thread_id": existing_thread_id,
-                "streaming": True,
-            }
-            # 如果有圖片，加入 payload（等 Agatha Public API 支援後即可生效）
-            if images:
-                agatha_payload["images"] = images
+            response = await agatha_partner_client.chat_stream(
+                session_id=agatha_session_id,
+                message=redacted_message,
+                images=images if images else None,
+            )
 
-            async with client.stream(
-                "POST",
-                settings.AGATHA_API_URL,
-                json=agatha_payload,
-                timeout=settings.AGATHA_API_TIMEOUT,
-            ) as response:
+            if response.status_code != 200:
+                error_text = await response.aread()
+                error_text = error_text.decode("utf-8", errors="ignore")
+                logger.error(f"❌ Partner API chat 失敗 ({response.status_code}): {error_text[:200]}")
+                yield _sse_json({"type": "error", "message": f"AI 服務錯誤 ({response.status_code})"})
+                await response.aclose()
+            else:
+                buffer = ""
+                async for chunk in response.aiter_bytes():
+                    buffer += chunk.decode("utf-8", errors="ignore")
 
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    error_text = error_text.decode("utf-8", errors="ignore")
-                    logger.warning(
-                        f"⚠️ Agatha streaming 失敗 ({response.status_code}), "
-                        f"將 fallback 到非 streaming: {error_text[:200]}"
-                    )
-                else:
-                    buffer = ""
-                    async for chunk in response.aiter_bytes():
-                        buffer += chunk.decode("utf-8", errors="ignore")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
 
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
-                            line = line.strip()
-                            if not line:
+                        if line.startswith("data: "):
+                            payload_str = line[6:]
+                            if payload_str.strip() == "[DONE]":
                                 continue
 
-                            if line.startswith("data: "):
-                                payload_str = line[6:]
-                                if payload_str.strip() == "[DONE]":
-                                    continue
+                            try:
+                                obj = json.loads(payload_str)
+                            except json.JSONDecodeError:
+                                continue
 
-                                try:
-                                    obj = json.loads(payload_str)
-                                except json.JSONDecodeError:
-                                    continue
+                            if not isinstance(obj, dict):
+                                continue
 
-                                if not isinstance(obj, dict):
-                                    continue
+                            event_type = obj.get("type", "")
 
-                                event_type = obj.get("type", "")
+                            if event_type == "content":
+                                content_delta = obj.get("delta") or obj.get("data") or obj.get("content") or ""
+                                if isinstance(content_delta, str) and content_delta:
+                                    full_content += content_delta
+                                yield _sse_json({
+                                    "type": "content",
+                                    "data": content_delta,
+                                    "accumulated": full_content,
+                                })
 
-                                if event_type == "content":
-                                    content_delta = obj.get("data") or obj.get("content") or ""
-                                    if isinstance(content_delta, str) and content_delta:
-                                        full_content += content_delta
-                                    yield _sse_json({
-                                        "type": "content",
-                                        "data": content_delta,
-                                        "accumulated": full_content,
-                                    })
-                                    streaming_success = True
+                            elif event_type in ("end", "complete", "done") or obj.get("is_complete"):
+                                if obj.get("content") and not full_content:
+                                    full_content = obj["content"]
 
-                                elif event_type in ("complete", "done") or obj.get("is_complete"):
-                                    final_thread_id = (
-                                        obj.get("thread_id")
-                                        or obj.get("session_id")
-                                        or obj.get("response_id")
-                                        or final_thread_id
-                                    )
-                                    if obj.get("content") and not full_content:
-                                        full_content = obj["content"]
-                                    streaming_success = True
-                                    # complete 事件延後到存完 MongoDB 再發
+                            elif event_type == "error":
+                                error_msg = obj.get("message") or obj.get("error") or "AI 服務發生錯誤"
+                                logger.error(f"❌ Partner API streaming 錯誤: {error_msg}")
+                                yield _sse_json({"type": "error", "message": error_msg})
+                                break
 
-                                elif event_type == "error":
-                                    error_msg = obj.get("message") or obj.get("error") or "AI 服務發生錯誤"
-                                    logger.error(f"❌ Agatha streaming 錯誤事件: {error_msg}")
-                                    break
+                            else:
+                                yield _sse_json(obj)
 
-                                else:
-                                    yield _sse_json(obj)
-                                    streaming_success = True
+                await response.aclose()
 
-        except (httpx.TimeoutException, httpx.ConnectError, Exception) as e:
-            logger.warning(f"⚠️ Agatha streaming 異常: {e}, 將 fallback 到非 streaming")
-
-        # === Fallback: 非 Streaming 模式 ===
-        if not streaming_success:
-            logger.info("🔄 Fallback 到非 streaming 模式")
-            try:
-                agatha_payload = {
-                    "api_key": settings.AGATHA_API_KEY,
-                    "query": redacted_message,
-                    "thread_id": existing_thread_id,
-                    "streaming": False,
-                }
-                # 如果有圖片，加入 payload
-                if images:
-                    agatha_payload["images"] = images
-
-                resp = await client.post(
-                    settings.AGATHA_API_URL,
-                    json=agatha_payload,
-                    timeout=settings.AGATHA_API_TIMEOUT,
-                )
-
-                if resp.status_code == 200:
-                    result = resp.json()
-
-                    content = ""
-                    thread_id = None
-
-                    if result.get("success") and isinstance(result.get("data"), dict):
-                        inner_data = result["data"]
-                        if isinstance(inner_data.get("data"), dict):
-                            content = inner_data["data"].get("content", "")
-                            thread_id = inner_data["data"].get("thread_id")
-                        elif isinstance(inner_data.get("content"), str):
-                            content = inner_data["content"]
-                            thread_id = inner_data.get("thread_id") or inner_data.get("session_id")
-                    elif isinstance(result.get("content"), str):
-                        content = result["content"]
-                        thread_id = result.get("thread_id") or result.get("session_id")
-
-                    full_content = content
-                    final_thread_id = thread_id or final_thread_id
-
-                    if content:
-                        yield _sse_json({
-                            "type": "content",
-                            "data": content,
-                            "accumulated": content,
-                        })
-                    else:
-                        yield _sse_json({
-                            "type": "error",
-                            "message": "AI 回覆為空",
-                        })
-                else:
-                    error_text = resp.text[:200]
-                    logger.error(f"❌ Agatha 非 streaming 錯誤: {resp.status_code}, {error_text}")
-                    yield _sse_json({
-                        "type": "error",
-                        "message": f"AI 服務錯誤 ({resp.status_code})",
-                    })
-
-            except httpx.TimeoutException:
-                logger.error("❌ Agatha API 超時（非 streaming）")
-                yield _sse_json({"type": "error", "message": "AI 服務回應超時，請稍後再試"})
-            except httpx.ConnectError:
-                logger.error("❌ Agatha API 連線失敗（非 streaming）")
-                yield _sse_json({"type": "error", "message": "無法連接 AI 服務，請稍後再試"})
-            except Exception as e:
-                logger.error(f"❌ 非 streaming 處理失敗: {e}")
-                yield _sse_json({"type": "error", "message": f"處理失敗: {str(e)}"})
+        except httpx.TimeoutException:
+            logger.error("❌ Partner API 超時")
+            yield _sse_json({"type": "error", "message": "AI 服務回應超時，請稍後再試"})
+        except httpx.ConnectError:
+            logger.error("❌ Partner API 連線失敗")
+            yield _sse_json({"type": "error", "message": "無法連接 AI 服務，請稍後再試"})
+        except Exception as e:
+            logger.error(f"❌ Partner API 處理失敗: {e}")
+            yield _sse_json({"type": "error", "message": f"處理失敗: {str(e)}"})
 
         # === 存入 Portal MongoDB ===
         if full_content:
@@ -645,36 +489,40 @@ async def create_or_continue_chat(
         "timestamp": now.isoformat(),
     }
 
-    # 呼叫 Agatha API（非 streaming）
+    # 呼叫 Agatha Partner API（非 streaming）
     assistant_content = ""
     if settings.AGATHA_API_KEY:
         try:
-            client = _get_agatha_client()
-            agatha_payload = {
-                "api_key": settings.AGATHA_API_KEY,
-                "query": query_for_ai,
-                "thread_id": None,
-                "streaming": False,
-            }
-            resp = await client.post(
-                settings.AGATHA_API_URL,
-                json=agatha_payload,
-                timeout=settings.AGATHA_API_TIMEOUT,
+            # 建立 session
+            session_data = await agatha_partner_client.create_session(
+                agent_id=body.agent_id,
+                external_user_id=email,
+                metadata={"country": country},
             )
-            if resp.status_code == 200:
-                result = resp.json()
-                if result.get("success") and isinstance(result.get("data"), dict):
-                    inner_data = result["data"]
-                    if isinstance(inner_data.get("data"), dict):
-                        assistant_content = inner_data["data"].get("content", "")
-                    elif isinstance(inner_data.get("content"), str):
-                        assistant_content = inner_data["content"]
-                elif isinstance(result.get("content"), str):
-                    assistant_content = result["content"]
+            agatha_sid = session_data.get("session_id")
+            # 呼叫 chat（非 streaming）
+            response = await agatha_partner_client.chat_stream(agatha_sid, query_for_ai)
+            if response.status_code == 200:
+                raw = await response.aread()
+                await response.aclose()
+                # 解析 SSE 事件取得完整內容
+                for line in raw.decode("utf-8", errors="ignore").split("\n"):
+                    line = line.strip()
+                    if line.startswith("data: ") and line[6:].strip() != "[DONE]":
+                        try:
+                            obj = json.loads(line[6:])
+                            if isinstance(obj, dict):
+                                if obj.get("type") == "content":
+                                    assistant_content += obj.get("data") or obj.get("content") or ""
+                                elif obj.get("type") in ("complete", "done") and obj.get("content") and not assistant_content:
+                                    assistant_content = obj["content"]
+                        except json.JSONDecodeError:
+                            continue
             else:
-                logger.error(f"❌ Agatha API 非 streaming 錯誤: {resp.status_code}")
+                await response.aclose()
+                logger.error(f"❌ Partner API 非 streaming 錯誤: {response.status_code}")
         except Exception as e:
-            logger.error(f"❌ Agatha API 呼叫失敗: {e}")
+            logger.error(f"❌ Partner API 呼叫失敗: {e}")
 
     if not assistant_content:
         assistant_content = (

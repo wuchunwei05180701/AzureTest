@@ -12,10 +12,13 @@ from sqlalchemy.orm import DeclarativeBase
 
 from config import settings
 
-# 建立不驗證證書的 SSL context（適用於 RDS）
-_local_ssl_context = ssl.create_default_context()
-_local_ssl_context.check_hostname = False
-_local_ssl_context.verify_mode = ssl.CERT_NONE
+# SSL context（僅在 DB_SSL_ENABLED=true 時啟用）
+_local_connect_args = {}
+if settings.DB_SSL_ENABLED:
+    _local_ssl_context = ssl.create_default_context()
+    _local_ssl_context.check_hostname = False
+    _local_ssl_context.verify_mode = ssl.CERT_NONE
+    _local_connect_args["ssl"] = _local_ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ class LocalDatabaseFactory:
                 pool_size=5,
                 max_overflow=10,
                 pool_pre_ping=True,
-                connect_args={"ssl": _local_ssl_context},
+                connect_args=_local_connect_args,
             )
             self._pg_engines[country_code] = engine
             self._pg_sessions[country_code] = async_sessionmaker(
