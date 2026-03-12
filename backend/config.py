@@ -6,9 +6,17 @@ import os
 from typing import Dict, List, Optional
 from urllib.parse import quote_plus
 
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv()
+# Azure App Service 中 Oryx 可能會改變工作目錄到 /tmp/...
+# 明確指定 .env 路徑確保正確載入
+_env_path = Path("/home/site/wwwroot/.env")
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()  # fallback: 本地開發用
 
 
 class Settings:
