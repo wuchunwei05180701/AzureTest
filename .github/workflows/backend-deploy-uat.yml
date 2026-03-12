@@ -11,7 +11,7 @@ name: 'Backend Deploy (UAT)'
 
 on:
   push:
-    branches: [master]
+    branches: [local-dev]
     paths:
       - 'backend/**'
       - '!backend/tests/**'
@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 env:
-  APP_NAME: YOUR_BACKEND_APP_NAME
+  APP_NAME: portalpilotbe
 
 jobs:
   deploy:
@@ -34,13 +34,8 @@ jobs:
       - name: '設定 UAT 環境變數'
         working-directory: backend
         run: |
-          if [ -f ".env.uat" ]; then
-            cp .env.uat .env
-          elif [ -f ".env.pilot" ]; then
-            cp .env.pilot .env
-          else
-            echo "WARNING: No .env.uat or .env.pilot found"
-          fi
+          echo "${{ secrets.ENV_UAT }}" > .env
+          echo ".env 已從 GitHub Secret 寫入"
 
       - name: '清理 Python 套件快取'
         working-directory: backend
