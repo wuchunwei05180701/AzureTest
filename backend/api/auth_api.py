@@ -76,18 +76,11 @@ async def request_otp(body: OTPRequest, request: Request):
     finally:
         await local_session.close()
 
-    # 4. 寄送 OTP
+    # 4. 寄送 OTP（SMTP 未設定時回傳 OTP 供直接登入）
     dev_otp = None
-    if settings.APP_ENV == "development":
-        logger.info(f"[DEV] OTP for {email}: {otp_code}")
-        dev_otp = otp_code  # 開發模式下回傳給前端，方便測試
-        # 開發環境也嘗試寄送 Email（如果 SMTP 有設定的話）
-        if settings.SMTP_USER and settings.SMTP_PASSWORD:
-            email_sent = await send_otp_email(to_email=email, otp_code=otp_code)
-            if email_sent:
-                logger.info(f"[DEV] OTP Email 也已寄送至 {email}")
-    else:
-        # 正式環境：寄送 OTP Email
+    smtp_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
+
+    if smtp_configured:
         email_sent = await send_otp_email(to_email=email, otp_code=otp_code)
         if not email_sent:
             logger.error(f"OTP Email 寄送失敗: {email}")
@@ -96,6 +89,10 @@ async def request_otp(body: OTPRequest, request: Request):
                 detail="驗證碼寄送失敗，請稍後再試或聯繫管理員"
             )
         logger.info(f"OTP Email 已寄送至 {email}")
+    else:
+        # SMTP 未設定：直接回傳 OTP（開發/測試用）
+        logger.warning(f"SMTP 未設定，直接回傳 OTP for {email}")
+        dev_otp = otp_code
 
     # 5. 記錄稽核
     await _log_audit(country, email, "otp_requested", "auth", request)
