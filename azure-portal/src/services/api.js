@@ -117,6 +117,16 @@ export const announcementAPI = {
   create: (data, country) =>
     api.post('/announcements', data, { params: country ? { country } : {} }),
 
+  /** 一步到位建立公告（含附件上傳 + PII 掃描）
+   * @param {FormData} formData - 包含 file 的 FormData（可多個）
+   * @param {object} params - { subject, content_en, publish_status, country? }
+   */
+  createWithFiles: (formData, params) =>
+    api.post('/announcements/create-with-files', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      params,
+    }),
+
   /** @param {string} [country] - 目標國家（僅 super_admin 可跨國編輯） */
   update: (noticeId, data, country) =>
     api.put(`/announcements/${noticeId}`, data, { params: country ? { country } : {} }),
@@ -172,6 +182,18 @@ export const announcementAPI = {
   deleteFile: (noticeId, filename, country) =>
     api.delete(`/announcements/${noticeId}/file`, {
       params: { filename, ...(country ? { country } : {}) },
+    }),
+};
+
+// ===== PII 偵測 API =====
+export const piiAPI = {
+  /** 預掃描上傳檔案中的 PII（不儲存檔案）
+   * @param {FormData} formData - 包含 file 的 FormData（可多個）
+   * @returns {Promise} { has_pii, files: [{ filename, has_pii, entity_count, entity_types }], message }
+   */
+  scanFiles: (formData) =>
+    api.post('/pii/scan-files', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     }),
 };
 

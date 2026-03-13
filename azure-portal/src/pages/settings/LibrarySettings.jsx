@@ -32,7 +32,7 @@ import {
   PictureOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
-import { libraryAPI } from '../../services/api';
+import { libraryAPI, piiAPI } from '../../services/api';
 import { adaptLibraryDocs, adaptCatalogs } from '../../utils/adapters';
 import { libraries as mockLibraries, userList } from '../../data/mockData';
 import { useCountry } from '../../contexts/CountryContext';
@@ -71,6 +71,72 @@ const LibrarySettings = () => {
   const [imagePreview, setImagePreview] = useState(null); // 預覽 URL (base64)
   const [imageUploading, setImageUploading] = useState(false);
   const [existingImageUrl, setExistingImageUrl] = useState(null); // 已有圖片的 blob URL
+
+  // PII 預掃描
+  const [piiScanning, setPiiScanning] = useState(false);
+
+  // PII 預掃描：選擇檔案後自動檢查
+  const handlePiiScan = async (newFileList, setListFn) => {
+    if (!newFileList || newFileList.length === 0) return true;
+
+    const supportedExts = ['.pdf', '.doc', '.docx', '.txt', '.csv'];
+    const scannable = newFileList.filter((f) => {
+      const name = (f.originFileObj?.name || f.name || '').toLowerCase();
+      return supportedExts.some((ext) => name.endsWith(ext));
+    });
+
+    if (scannable.length === 0) return true;
+
+    setPiiScanning(true);
+    try {
+      const formData = new FormData();
+      scannable.forEach((f) => {
+        const file = f.originFileObj || f;
+        formData.append('file', file);
+      });
+
+      const res = await piiAPI.scanFiles(formData);
+      const result = res.data;
+
+      if (result.has_pii) {
+        const piiFiles = (result.files || []).filter((f) => f.has_pii);
+        const details = piiFiles.map((pf) =>
+          t('pii.entityFile', {
+            filename: pf.filename,
+            count: pf.entity_count,
+            types: pf.entity_types.join(', '),
+          })
+        );
+
+        Modal.warning({
+          title: t('pii.detectedTitle'),
+          content: (
+            <div>
+              <p>{t('pii.detectedMessage')}</p>
+              <p style={{ marginTop: 12, fontWeight: 500 }}>{t('pii.detectedDetail')}</p>
+              <ul style={{ paddingLeft: 20 }}>
+                {details.map((d, i) => (
+                  <li key={i} style={{ color: '#cf1322', marginBottom: 4 }}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+          okText: t('pii.understood'),
+          width: 520,
+        });
+
+        // 清除檔案列表
+        if (setListFn) setListFn([]);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('PII 預掃描失敗', err);
+      return true; // 掃描失敗不阻擋（後端還有第二道防線）
+    } finally {
+      setPiiScanning(false);
+    }
+  };
 
   // 從後端載入圖書館資料（列表頁面用）— 同時載入 catalogs + 文件
   const fetchLibrary = async (country) => {
@@ -689,13 +755,19 @@ const LibrarySettings = () => {
             name="file"
             label={t('librarySettings.uploadFile')}
             valuePropName="file"
-            extra={t('librarySettings.uploadFileHint')}
+            extra={piiScanning ? t('pii.scanningFiles') : t('librarySettings.uploadFileHint')}
             getValueFromEvent={(e) => {
               if (!e || !e.fileList) return e;
               const totalSize = e.fileList.reduce((sum, f) => sum + (f.originFileObj?.size || f.size || 0), 0);
               if (totalSize > 100 * 1024 * 1024) {
                 message.error(t('librarySettings.fileSizeExceeded', { size: (totalSize / 1024 / 1024).toFixed(1) }));
                 return { fileList: e.fileList.slice(0, -1) };
+              }
+              // 選擇檔案後自動做 PII 預掃描
+              if (e.fileList.length > 0) {
+                handlePiiScan(e.fileList, (cleared) => {
+                  form.setFieldsValue({ file: { fileList: cleared } });
+                });
               }
               return e;
             }}
@@ -705,7 +777,7 @@ const LibrarySettings = () => {
               accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp"
               beforeUpload={() => false}
             >
-              <Button icon={<UploadOutlined />}>{t('common.selectFile')}</Button>
+              <Button icon={<UploadOutlined />} loading={piiScanning}>{piiScanning ? t('pii.scanningFiles') : t('common.selectFile')}</Button>
             </Upload>
           </Form.Item>
         </Form>
@@ -791,7 +863,7 @@ const LibrarySettings = () => {
           {/* 追加上傳新檔案 */}
           <Form.Item
             label={t('librarySettings.appendUpload')}
-            extra={t('librarySettings.appendUploadHint')}
+            extra={piiScanning ? t('pii.scanningFiles') : t('librarySettings.appendUploadHint')}
           >
             <Upload
               multiple
@@ -804,10 +876,14 @@ const LibrarySettings = () => {
                   return;
                 }
                 setEditFileList(newFileList);
+                // 選擇檔案後自動做 PII 預掃描
+                if (newFileList.length > 0) {
+                  handlePiiScan(newFileList, setEditFileList);
+                }
               }}
               beforeUpload={() => false}
             >
-              <Button icon={<CloudUploadOutlined />}>{t('common.selectFile')}</Button>
+              <Button icon={<CloudUploadOutlined />} loading={piiScanning}>{piiScanning ? t('pii.scanningFiles') : t('common.selectFile')}</Button>
             </Upload>
           </Form.Item>
         </Form>

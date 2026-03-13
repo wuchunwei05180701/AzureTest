@@ -419,6 +419,17 @@ const en = {
     it: 'IT',
     management: 'Management',
   },
+
+  // ===== PII Detection =====
+  pii: {
+    scanningFiles: 'Checking file security...',
+    detectedTitle: '⚠️ Sensitive Data Detected',
+    detectedMessage: 'The selected file(s) contain personally identifiable information (PII). Please redact the sensitive data and try again.',
+    detectedDetail: 'Detection details:',
+    entityFile: 'File "{filename}" contains {count} PII entities ({types})',
+    understood: 'I understand',
+    scanFailed: 'File security check failed. Please try again later.',
+  },
 };
 
 export default en;

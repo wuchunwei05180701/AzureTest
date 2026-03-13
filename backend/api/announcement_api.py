@@ -96,7 +96,7 @@ async def create_announcement(
     country: Optional[str] = Query(None, description="目標國家（僅 super_admin 可跨國建立）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
-    """新增公告"""
+    """新增公告（不含附件，僅建立記錄）"""
     target_country = _resolve_country(payload, country)
     session = await data_router.get_local_pg(target_country)
     try:
@@ -111,6 +111,157 @@ async def create_announcement(
         return MessageResponse(message="公告已新增", detail=str(notice.notice_id))
     finally:
         await session.close()
+
+
+@router.post("/create-with-files", response_model=MessageResponse)
+async def create_announcement_with_files(
+    request: Request,
+    subject: str = Query(..., description="公告標題"),
+    content_en: str = Query("", description="公告內容"),
+    publish_status: str = Query("published", description="發布狀態"),
+    country: Optional[str] = Query(None, description="目標國家（僅 super_admin 可跨國建立）"),
+    payload: dict = Depends(require_permission("manage_announcements")),
+):
+    """
+    一步到位建立公告（含附件上傳 + PII 掃描）
+
+    如果附件被 PII 偵測擋下，公告記錄也會一併回滾刪除，
+    避免留下沒有附件的空公告。
+    """
+    target_country = _resolve_country(payload, country)
+
+    # 步驟 1：建立公告 DB 記錄
+    session = await data_router.get_local_pg(target_country)
+    try:
+        notice = LocalNotice(
+            subject=subject,
+            content_en=content_en,
+            files=[],
+            publish_status=publish_status,
+        )
+        session.add(notice)
+        await session.commit()
+        await session.refresh(notice)
+        notice_id = str(notice.notice_id)
+    finally:
+        await session.close()
+
+    # 步驟 2：處理多檔案上傳
+    new_files = []
+    content_type_header = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type_header:
+        try:
+            form = await request.form()
+            uploaded_files = form.getlist("file")
+            if not uploaded_files:
+                single_file = form.get("file")
+                if single_file and hasattr(single_file, 'filename') and single_file.filename:
+                    uploaded_files = [single_file]
+
+            for uploaded_file in uploaded_files:
+                if hasattr(uploaded_file, 'filename') and uploaded_file.filename:
+                    file_info = await storage_service.save_file(
+                        target_country, "announcements", notice_id, uploaded_file
+                    )
+                    file_entry = {
+                        "name": file_info["original_filename"],
+                        "file_url": f"/api/announcements/{notice_id}/download?country={target_country}&filename={file_info['original_filename']}",
+                        "file_size": file_info["file_size"],
+                        "storage_path": file_info["relative_path"],
+                    }
+                    new_files.append(file_entry)
+        except Exception as e:
+            # 檔案上傳失敗 → 回滾：刪除公告記錄
+            logger.warning(f"公告附件上傳失敗，回滾公告記錄: {e}")
+            storage_service.delete_files(target_country, "announcements", notice_id)
+            session = await data_router.get_local_pg(target_country)
+            try:
+                await session.execute(
+                    delete(LocalNotice).where(LocalNotice.notice_id == notice_id)
+                )
+                await session.commit()
+            finally:
+                await session.close()
+            raise HTTPException(status_code=500, detail=f"檔案上傳失敗: {str(e)}")
+
+    # 步驟 3：PII 掃描
+    pii_warning = ""
+    try:
+        pii_svc = get_pii_service()
+        if pii_svc.enabled and new_files:
+            for fi in new_files:
+                file_path = storage_service.get_file_path(
+                    target_country, "announcements", notice_id, fi["name"]
+                )
+                if file_path:
+                    scan_result = await pii_svc.scan_file(file_path)
+                    fi["pii_detected"] = scan_result.has_pii
+                    fi["pii_entity_count"] = scan_result.entity_count
+                    fi["pii_entity_types"] = scan_result.entity_types
+                    if scan_result.has_pii:
+                        logger.warning(
+                            f"⚠️ PII 偵測: 公告附件 {notice_id}/{fi['name']} "
+                            f"含 {scan_result.entity_count} 個 PII 實體 "
+                            f"({', '.join(scan_result.entity_types)})"
+                        )
+            pii_files = [f for f in new_files if f.get("pii_detected")]
+            if pii_files:
+                if settings.PII_BLOCK_UPLOAD:
+                    # 阻擋模式：刪除檔案 + 回滾公告記錄
+                    storage_service.delete_files(target_country, "announcements", notice_id)
+                    session = await data_router.get_local_pg(target_country)
+                    try:
+                        await session.execute(
+                            delete(LocalNotice).where(LocalNotice.notice_id == notice_id)
+                        )
+                        await session.commit()
+                    finally:
+                        await session.close()
+                    blocked_details = []
+                    for pf in pii_files:
+                        types_str = ", ".join(pf.get("pii_entity_types", []))
+                        blocked_details.append(
+                            f"「{pf['name']}」含 {pf.get('pii_entity_count', 0)} 個 PII（{types_str}）"
+                        )
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"上傳被拒絕：偵測到個人敏感資訊（PII）。{'; '.join(blocked_details)}。請移除敏感資訊後重新上傳。",
+                    )
+                else:
+                    pii_warning = f"⚠️ {len(pii_files)} 個檔案偵測到個人敏感資訊（PII）"
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"⚠️ PII 掃描失敗（不影響上傳）: {e}")
+
+    # 步驟 4：更新公告的 files JSONB
+    if new_files:
+        # 清除 PII 掃描的臨時欄位
+        clean_files = []
+        for f in new_files:
+            clean_files.append({
+                "name": f["name"],
+                "file_url": f["file_url"],
+                "file_size": f["file_size"],
+                "storage_path": f["storage_path"],
+            })
+        session = await data_router.get_local_pg(target_country)
+        try:
+            await session.execute(
+                update(LocalNotice)
+                .where(LocalNotice.notice_id == notice_id)
+                .values(files=clean_files)
+            )
+            await session.commit()
+        finally:
+            await session.close()
+
+    msg = "公告已新增"
+    if new_files:
+        msg += f"（含 {len(new_files)} 個附件）"
+    if pii_warning:
+        msg += f"。{pii_warning}"
+    return MessageResponse(message=msg, detail=notice_id)
 
 
 @router.put("/{notice_id}", response_model=MessageResponse)

@@ -22,7 +22,7 @@ import {
   GlobalOutlined,
   PaperClipOutlined,
 } from '@ant-design/icons';
-import { announcementAPI } from '../../services/api';
+import { announcementAPI, piiAPI } from '../../services/api';
 import { adaptAnnouncements, toAnnouncementCreate, toAnnouncementUpdate } from '../../utils/adapters';
 import { announcements as mockAnnouncements } from '../../data/mockData';
 import { useAuth } from '../../contexts/AuthContext';
@@ -43,7 +43,83 @@ const AnnouncementSettings = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [fileList, setFileList] = useState([]);
+  const [piiScanning, setPiiScanning] = useState(false);
+  const [piiPassed, setPiiPassed] = useState(true); // true = 通過或未掃描
   const [form] = Form.useForm();
+
+  // PII 預掃描：選擇檔案後自動檢查
+  const handlePiiScan = async (newFileList) => {
+    if (!newFileList || newFileList.length === 0) {
+      setPiiPassed(true);
+      return;
+    }
+
+    // 只掃描支援的格式
+    const supportedExts = ['.pdf', '.doc', '.docx', '.txt', '.csv'];
+    const scannable = newFileList.filter((f) => {
+      const name = (f.originFileObj?.name || f.name || '').toLowerCase();
+      return supportedExts.some((ext) => name.endsWith(ext));
+    });
+
+    if (scannable.length === 0) {
+      setPiiPassed(true);
+      return;
+    }
+
+    setPiiScanning(true);
+    setPiiPassed(false);
+    try {
+      const formData = new FormData();
+      scannable.forEach((f) => {
+        const file = f.originFileObj || f;
+        formData.append('file', file);
+      });
+
+      const res = await piiAPI.scanFiles(formData);
+      const result = res.data;
+
+      if (result.has_pii) {
+        // 偵測到 PII → 彈出提示視窗
+        const piiFiles = (result.files || []).filter((f) => f.has_pii);
+        const details = piiFiles.map((pf) =>
+          t('pii.entityFile', {
+            filename: pf.filename,
+            count: pf.entity_count,
+            types: pf.entity_types.join(', '),
+          })
+        );
+
+        Modal.warning({
+          title: t('pii.detectedTitle'),
+          content: (
+            <div>
+              <p>{t('pii.detectedMessage')}</p>
+              <p style={{ marginTop: 12, fontWeight: 500 }}>{t('pii.detectedDetail')}</p>
+              <ul style={{ paddingLeft: 20 }}>
+                {details.map((d, i) => (
+                  <li key={i} style={{ color: '#cf1322', marginBottom: 4 }}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+          okText: t('pii.understood'),
+          width: 520,
+        });
+
+        // 清除檔案列表
+        setFileList([]);
+        setPiiPassed(false);
+      } else {
+        setPiiPassed(true);
+      }
+    } catch (err) {
+      console.error('PII 預掃描失敗', err);
+      // 掃描失敗不阻擋上傳（後端還有第二道防線）
+      setPiiPassed(true);
+    } finally {
+      setPiiScanning(false);
+    }
+  };
 
   const fetchAnnouncements = async (country) => {
     setLoading(true);
@@ -133,7 +209,19 @@ const AnnouncementSettings = () => {
           message.success(t('announcementSettings.uploadedCount', { count: fileList.length }));
         } catch (uploadErr) {
           console.error('上傳附件失敗', uploadErr);
-          message.warning(t('announcementSettings.uploadFailed') + '：' + (uploadErr.response?.data?.detail || uploadErr.message));
+          // PII 被擋（422）或其他上傳失敗：如果是新增模式，回滾刪除剛建立的公告
+          if (!editingItem && noticeId) {
+            try {
+              await announcementAPI.delete(noticeId, countryParam);
+              console.log('已回滾刪除公告', noticeId);
+            } catch (delErr) {
+              console.error('回滾刪除公告失敗', delErr);
+            }
+          }
+          message.error(t('announcementSettings.uploadFailed') + '：' + (uploadErr.response?.data?.detail || uploadErr.message));
+          // 不關閉 Modal，讓使用者可以修改後重試
+          fetchAnnouncements(effectiveCountry);
+          return;
         }
       }
 
@@ -308,7 +396,7 @@ const AnnouncementSettings = () => {
               <Select.Option value="draft">{t('common.draft')}</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item label={t('announcementSettings.attachmentLabel')} extra={t('announcementSettings.attachmentHint')}>
+          <Form.Item label={t('announcementSettings.attachmentLabel')} extra={piiScanning ? t('pii.scanningFiles') : t('announcementSettings.attachmentHint')}>
             <Upload
               multiple
               accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp"
@@ -320,10 +408,16 @@ const AnnouncementSettings = () => {
                   return;
                 }
                 setFileList(newFileList);
+                // 選擇檔案後自動做 PII 預掃描
+                if (newFileList.length > 0) {
+                  handlePiiScan(newFileList);
+                } else {
+                  setPiiPassed(true);
+                }
               }}
               beforeUpload={() => false}
             >
-              <Button icon={<UploadOutlined />}>{t('common.selectFile')}</Button>
+              <Button icon={<UploadOutlined />} loading={piiScanning}>{piiScanning ? t('pii.scanningFiles') : t('common.selectFile')}</Button>
             </Upload>
             {editingItem?.attachments?.length > 0 && (
               <div style={{ marginTop: 8 }}>

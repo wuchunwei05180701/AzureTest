@@ -419,6 +419,17 @@ const zhTW = {
     it: '資訊部',
     management: '管理部',
   },
+
+  // ===== PII 偵測 =====
+  pii: {
+    scanningFiles: '正在檢查檔案安全性...',
+    detectedTitle: '⚠️ 偵測到機密資料',
+    detectedMessage: '您選擇的檔案含有個人敏感資訊（PII），請遮蔽機密資料後再重新上傳。',
+    detectedDetail: '偵測詳情：',
+    entityFile: '檔案「{filename}」含 {count} 個敏感資訊（{types}）',
+    understood: '我知道了',
+    scanFailed: '檔案安全性檢查失敗，請稍後再試',
+  },
 };
 
 export default zhTW;
