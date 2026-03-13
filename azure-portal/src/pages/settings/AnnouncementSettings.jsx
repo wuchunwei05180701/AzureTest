@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Button,
   Table,
@@ -11,8 +11,6 @@ import {
   Popconfirm,
   message,
   Space,
-  Spin,
-  Divider,
 } from 'antd';
 import {
   PlusOutlined,
@@ -23,11 +21,9 @@ import {
   SearchOutlined,
   GlobalOutlined,
   PaperClipOutlined,
-  BookOutlined,
-  FolderOutlined,
 } from '@ant-design/icons';
-import { announcementAPI, libraryAPI, piiAPI } from '../../services/api';
-import { adaptAnnouncements, adaptLibraryDocsFlat, adaptCatalogs, toAnnouncementCreate, toAnnouncementUpdate } from '../../utils/adapters';
+import { announcementAPI, piiAPI } from '../../services/api';
+import { adaptAnnouncements, toAnnouncementCreate, toAnnouncementUpdate } from '../../utils/adapters';
 import { announcements as mockAnnouncements } from '../../data/mockData';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCountry } from '../../contexts/CountryContext';
@@ -50,14 +46,6 @@ const AnnouncementSettings = () => {
   const [piiScanning, setPiiScanning] = useState(false);
   const [piiPassed, setPiiPassed] = useState(true); // true = 通過或未掃描
   const [form] = Form.useForm();
-
-  // 圖書館文件選擇相關（先選館→再選文件）
-  const [libCatalogs, setLibCatalogs] = useState([]); // 館名列表
-  const [libCatalogsLoading, setLibCatalogsLoading] = useState(false);
-  const [selectedCatalog, setSelectedCatalog] = useState(null); // 選中的館名
-  const [libraryDocs, setLibraryDocs] = useState([]); // 該館下的文件列表
-  const [libraryDocsLoading, setLibraryDocsLoading] = useState(false);
-  const [allLibraryDocs, setAllLibraryDocs] = useState([]); // 所有文件（用於回顯已選）
 
   // PII 預掃描：選擇檔案後自動檢查
   const handlePiiScan = async (newFileList) => {
@@ -150,92 +138,27 @@ const AnnouncementSettings = () => {
     fetchAnnouncements(effectiveCountry);
   }, [effectiveCountry]);
 
-  // 載入館名列表 + 所有文件（供選擇器使用），回傳所有文件供 handleEdit 使用
-  const fetchLibraryCatalogs = useCallback(async (country) => {
-    setLibCatalogsLoading(true);
-    setLibraryDocsLoading(true);
-    try {
-      const [catRes, docsRes] = await Promise.all([
-        libraryAPI.listCatalogs(country).catch(() => ({ data: [] })),
-        libraryAPI.listAll(country).catch(() => ({ data: [] })),
-      ]);
-      const cats = adaptCatalogs(catRes.data);
-      const docs = adaptLibraryDocsFlat(docsRes.data);
-      setLibCatalogs(cats);
-      setAllLibraryDocs(docs);
-      // 預設不選館，文件列表為空
-      setLibraryDocs([]);
-      setSelectedCatalog(null);
-      return docs; // 回傳供 handleEdit 使用
-    } catch (err) {
-      console.warn('載入圖書館資料失敗', err);
-      setLibCatalogs([]);
-      setAllLibraryDocs([]);
-      setLibraryDocs([]);
-      return [];
-    } finally {
-      setLibCatalogsLoading(false);
-      setLibraryDocsLoading(false);
-    }
-  }, []);
-
-  // 選擇館名後，篩選該館下的文件
-  const handleCatalogChange = useCallback((catalogName, clearSelection = true) => {
-    setSelectedCatalog(catalogName);
-    if (!catalogName) {
-      setLibraryDocs([]);
-      if (clearSelection) form.setFieldsValue({ library_docs: [] });
-      return;
-    }
-    const filtered = allLibraryDocs.filter((doc) => doc.libraryName === catalogName);
-    setLibraryDocs(filtered);
-    // 換館時清除已選的文件（編輯回填時不清除）
-    if (clearSelection) {
-      form.setFieldsValue({ library_docs: [] });
-    }
-  }, [allLibraryDocs, form]);
-
   const handleAdd = () => {
     setEditingItem(null);
     setFileList([]);
-    setSelectedCatalog(null);
-    setLibraryDocs([]);
     form.resetFields();
     form.setFieldsValue({
       publish_status: 'published',
-      library_docs: [],
       // super_admin 預設選中當前顯示的國家
       ...(isSuperAdmin ? { target_country: displayCountry } : {}),
     });
-    // 載入圖書館館名 + 文件
-    fetchLibraryCatalogs(effectiveCountry);
     setModalOpen(true);
   };
 
   const handleEdit = (record) => {
     setEditingItem(record);
     setFileList([]);
-    // 還原已選的圖書館文件 ID
-    const existingDocIds = (record.libraryDocs || []).map((d) => d.docId);
     form.setFieldsValue({
       subject: record.subject,
       content: record.content,
       publish_status: record.publish_status || 'draft',
-      library_docs: existingDocIds,
       // 編輯時使用當前顯示的國家
       ...(isSuperAdmin ? { target_country: displayCountry } : {}),
-    });
-    // 載入圖書館館名 + 文件，載入完成後自動推斷已選的館並篩選文件
-    fetchLibraryCatalogs(effectiveCountry).then((loadedDocs) => {
-      if (record.libraryDocs?.length > 0) {
-        const firstLib = record.libraryDocs[0].libraryName;
-        if (firstLib) {
-          setSelectedCatalog(firstLib);
-          // 手動篩選該館的文件（不清除已選）
-          const filtered = (loadedDocs || []).filter((doc) => doc.libraryName === firstLib);
-          setLibraryDocs(filtered);
-        }
-      }
     });
     setModalOpen(true);
   };
@@ -252,31 +175,12 @@ const AnnouncementSettings = () => {
   };
 
   const handleSave = async () => {
-    // 如果 PII 掃描還在進行中，阻止儲存
-    if (piiScanning) {
-      message.warning(t('pii.scanningFiles'));
-      return;
-    }
-    // 如果 PII 掃描未通過（偵測到敏感資訊），阻止儲存
-    if (!piiPassed && fileList.length > 0) {
-      message.error(t('pii.detectedTitle'));
-      return;
-    }
     try {
       const values = await form.validateFields();
-
-      // 將選中的圖書館文件 ID 轉換為完整的 libraryDocs 物件（從 allLibraryDocs 查找）
-      const selectedDocIds = values.library_docs || [];
-      const libraryDocsData = selectedDocIds.map((docId) => {
-        const doc = allLibraryDocs.find((d) => d.id === docId);
-        return doc ? { docId: doc.id, name: doc.name, libraryName: doc.libraryName } : null;
-      }).filter(Boolean);
-
       const adapterData = {
         subject: values.subject,
         content: values.content,
         publishStatus: values.publish_status,
-        libraryDocs: libraryDocsData,
       };
 
       // super_admin 使用表單中選擇的目標國家
@@ -378,20 +282,6 @@ const AnnouncementSettings = () => {
       },
     },
     {
-      title: t('announcementSettings.libraryDocsLabel'),
-      dataIndex: 'libraryDocs',
-      key: 'libraryDocs',
-      width: 140,
-      render: (docs) => {
-        if (!docs || docs.length === 0) return '-';
-        return (
-          <Tag color="purple" icon={<BookOutlined />}>
-            {t('announcementSettings.libraryDocsCount', { count: docs.length })}
-          </Tag>
-        );
-      },
-    },
-    {
       title: t('common.actions'),
       key: 'actions',
       width: 160,
@@ -408,7 +298,7 @@ const AnnouncementSettings = () => {
           <Popconfirm
             title={t('announcementSettings.deleteConfirm')}
             onConfirm={() => handleDelete(record.id)}
-            okText={t('common.delete')}
+            okText={t('common.confirm')}
             cancelText={t('common.cancel')}
           >
             <Button type="text" danger icon={<DeleteOutlined />}>
@@ -463,13 +353,9 @@ const AnnouncementSettings = () => {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSave}
-        okText={piiScanning ? t('pii.scanningFiles') : t('common.save')}
+        okText={t('common.save')}
         cancelText={t('common.cancel')}
-        okButtonProps={{
-          style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' },
-          disabled: piiScanning || (!piiPassed && fileList.length > 0),
-          loading: piiScanning,
-        }}
+        okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
       >
         <Form form={form} layout="vertical">
           {/* super_admin 選擇目標國家 */}
@@ -585,102 +471,6 @@ const AnnouncementSettings = () => {
                 ))}
               </div>
             )}
-          </Form.Item>
-          {/* 圖書館資料選擇器：先選館→再選文件 */}
-          <Divider style={{ margin: '16px 0 8px' }}>
-            <span style={{ fontSize: 13, color: '#722ed1' }}>
-              <BookOutlined style={{ marginRight: 4 }} />
-              {t('announcementSettings.libraryDocsLabel')}
-            </span>
-          </Divider>
-          <Form.Item
-            label={
-              <span>
-                <FolderOutlined style={{ marginRight: 4 }} />
-                {t('announcementSettings.selectCatalogLabel')}
-              </span>
-            }
-            extra={t('announcementSettings.selectCatalogHint')}
-          >
-            <Select
-              placeholder={libCatalogsLoading ? t('announcementSettings.libraryDocsLoading') : t('announcementSettings.selectCatalogPlaceholder')}
-              loading={libCatalogsLoading}
-              value={selectedCatalog}
-              onChange={(val) => handleCatalogChange(val)}
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              notFoundContent={libCatalogsLoading ? <Spin size="small" /> : t('announcementSettings.noCatalogs')}
-              options={libCatalogs.map((cat) => ({
-                value: cat.name,
-                label: `${cat.name}（${cat.docCount || 0} ${t('announcementSettings.docsUnit')}）`,
-              }))}
-              optionRender={(option) => {
-                const cat = libCatalogs.find((c) => c.name === option.value);
-                return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <FolderOutlined style={{ color: '#722ed1', flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 500 }}>{cat?.name || option.label}</div>
-                      <div style={{ fontSize: 12, color: '#999' }}>
-                        {cat?.docCount || 0} {t('announcementSettings.docsUnit')}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }}
-            />
-          </Form.Item>
-          <Form.Item
-            name="library_docs"
-            label={
-              <span>
-                <BookOutlined style={{ marginRight: 4 }} />
-                {t('announcementSettings.selectDocsLabel')}
-              </span>
-            }
-            extra={t('announcementSettings.libraryDocsHint')}
-          >
-            <Select
-              mode="multiple"
-              placeholder={
-                !selectedCatalog
-                  ? t('announcementSettings.selectCatalogFirst')
-                  : libraryDocsLoading
-                    ? t('announcementSettings.libraryDocsLoading')
-                    : t('announcementSettings.libraryDocsPlaceholder')
-              }
-              disabled={!selectedCatalog}
-              loading={libraryDocsLoading}
-              showSearch
-              allowClear
-              optionFilterProp="label"
-              notFoundContent={
-                libraryDocsLoading ? <Spin size="small" /> : t('announcementSettings.libraryDocsEmpty')
-              }
-              options={libraryDocs.map((doc) => ({
-                value: doc.id,
-                label: doc.name,
-              }))}
-              optionRender={(option) => {
-                const doc = libraryDocs.find((d) => d.id === option.value);
-                return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <BookOutlined style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {doc?.name || option.label}
-                      </div>
-                      {doc?.description && (
-                        <div style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {doc.description}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }}
-            />
           </Form.Item>
         </Form>
       </Modal>
