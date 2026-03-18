@@ -108,6 +108,9 @@ const zhTW = {
     librarySubtitle: '(Online Library)',
     noLibraryDocs: '目前沒有圖書館文件',
     noPreview: '無預覽',
+    relatedLibraryDocs: '📚 圖書館資料',
+    viewInLibrary: '前往圖書館查看',
+    downloadLibraryDoc: '下載',
   },
 
   // ===== Agent 對話 =====
@@ -230,6 +233,20 @@ const zhTW = {
     attachmentDeleted: '附件「{name}」已刪除',
     attachmentDeleteFailed: '刪除附件失敗',
     fileSizeExceeded: '所有檔案總計 {size} MB，超過 100 MB 上限',
+    libraryDocsLabel: '圖書館資料',
+    libraryDocsHint: '選擇圖書館中已上傳的文件，直接作為公告附件使用',
+    libraryDocsPlaceholder: '選擇文件...',
+    libraryDocsLoading: '載入中...',
+    libraryDocsEmpty: '此館目前沒有文件',
+    libraryDocsCount: '{count} 個圖書館文件',
+    hasLibraryDocs: '有圖書館文件',
+    selectCatalogLabel: '選擇館名',
+    selectCatalogHint: '先選擇一個館，再從該館中選擇文件',
+    selectCatalogPlaceholder: '請選擇館名...',
+    noCatalogs: '目前沒有館',
+    docsUnit: '份文件',
+    selectDocsLabel: '選擇文件',
+    selectCatalogFirst: '請先選擇館名',
   },
 
   // ===== Agent 權限設定 =====
@@ -267,6 +284,7 @@ const zhTW = {
     uploadDocument: '上傳知識文件',
     editDocument: '編輯文件',
     libraryManagement: '館名管理',
+    documentManagement: '文件管理',
     libraryName: '館名',
     libraryNameRequired: '請選擇或輸入館名',
     libraryNamePlaceholder: '請選擇館名或新增',
@@ -332,6 +350,14 @@ const zhTW = {
     dragImageHint: '點擊或拖曳圖片到此區域',
     imageFormatHint: '僅支援 PNG、JPG 格式，最大 5MB',
     imageSizeExceeded: '圖片大小超過 5MB 上限',
+    // Tab 切換式版面
+    searchLibraryPlaceholder: '搜尋館名...',
+    searchDocPlaceholder: '搜尋文件...',
+    filterByLibrary: '篩選館名',
+    filteringBy: '篩選中',
+    addNewLibrary: '新增館',
+    addNewLibraryHint: '輸入新的館名以建立空館，之後可在「文件管理」中上傳文件。',
+    noCatalogs: '尚無館名，請點擊「新增館」建立',
   },
 
   // ===== 使用者管理 =====
@@ -390,13 +416,11 @@ const zhTW = {
     totalCount: '總計: {total} 人 | 啟用: {active} 人',
   },
 
-  // ===== 角色名稱 =====
+  // ===== 角色名稱（v2：3角色版本）=====
   roles: {
-    super_admin: '台灣最高管理者',
-    platform_admin: '平台管理者',
-    user_manager: '用戶管理者',
-    library_manager: '圖書館管理者',
-    user: '一般使用者',
+    root:  '最高管理者',
+    admin: '管理者',
+    user:  '一般使用者',
   },
 
   // ===== 國家名稱 =====

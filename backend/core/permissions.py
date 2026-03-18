@@ -1,12 +1,9 @@
 """
 角色權限定義與檢查
-
-角色設計（3角色）：
-  root  — 最高管理者，額外擁有跨國查看權限
-  admin — 一般管理者，擁有全部管理功能（使用者、圖書館、公告、Agent 權限）
-  user  — 一般使用者
+v2: 3 角色版本（root / admin / user）
 """
 from enum import Enum
+from functools import wraps
 from typing import List
 
 from fastapi import Depends, HTTPException, status
@@ -15,22 +12,22 @@ from core.security import get_current_user_payload
 
 
 class Role(str, Enum):
-    ROOT = "root"
-    ADMIN = "admin"
-    USER = "user"
+    ROOT  = "root"   # 最高管理者（對應原 super_admin）
+    ADMIN = "admin"  # 一般管理者（合併原 platform_admin + user_manager + library_manager）
+    USER  = "user"   # 一般使用者
 
 
 ROLE_LABELS = {
-    Role.ROOT: "最高管理者",
-    Role.ADMIN: "一般管理者",
-    Role.USER: "一般使用者",
+    Role.ROOT:  "最高管理者",
+    Role.ADMIN: "管理者",
+    Role.USER:  "一般使用者",
 }
 
 # 角色階層等級（數字越大權限越高）
 ROLE_HIERARCHY = {
-    Role.ROOT: 3,
+    Role.ROOT:  3,
     Role.ADMIN: 2,
-    Role.USER: 1,
+    Role.USER:  1,
 }
 
 ROLE_PERMISSIONS = {
@@ -38,12 +35,13 @@ ROLE_PERMISSIONS = {
         "view_announcements", "use_agents", "view_library", "chat_history",
         "manage_users", "manage_library", "manage_announcements",
         "manage_agent_permissions", "access_all_agents", "access_all_docs",
-        "cross_country_logs",
+        "cross_country_logs",          # root 獨有：跨國查看
     ],
     Role.ADMIN: [
         "view_announcements", "use_agents", "view_library", "chat_history",
         "manage_users", "manage_library", "manage_announcements",
         "manage_agent_permissions", "access_all_agents", "access_all_docs",
+        # 無 cross_country_logs
     ],
     Role.USER: [
         "view_announcements", "use_agents", "view_library", "chat_history",

@@ -25,11 +25,12 @@ import { agents as mockAgents } from '../../data/mockData';
 import { useLanguage } from '../../contexts/LanguageContext';
 import '../Settings.css';
 
-// 所有可授權的角色（與後端 permissions.py 的 Role enum 一致）
+// 所有可授權的角色（v2：與後端 permissions.py 的 Role enum 一致）
+// 注意：label 僅作為 fallback，實際顯示由 i18n t('roles.xxx') 決定
 const ALL_ROLES = [
-  { value: 'root', label: '最高管理者' },
-  { value: 'admin', label: '平台管理者' },
-  { value: 'user', label: '一般使用者' },
+  { value: 'root',  label: '最高管理者' },
+  { value: 'admin', label: '管理者' },
+  { value: 'user',  label: '一般使用者' },
 ];
 
 const AgentPermissions = () => {
@@ -62,7 +63,7 @@ const AgentPermissions = () => {
       const res = await agentAPI.listAll();
       const adapted = adaptAgents(res.data).map((a) => ({
         ...a,
-        published: a.status === 'available',
+        published: a.status === '可用',
         assignedUsers: a.acl?.authorizedUsers || [],
         assignedRoles: a.acl?.authorizedRoles || [],
       }));
@@ -224,7 +225,7 @@ const AgentPermissions = () => {
       },
     },
     {
-      title: t('agentPermissions.settingColumn'),
+      title: t('common.actions'),
       key: 'actions',
       width: 140,
       render: (_, record) => (

@@ -10,12 +10,15 @@ import {
   Popconfirm,
   message,
   Space,
+  Badge,
   Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   UserSwitchOutlined,
+  StopOutlined,
+  CheckCircleOutlined,
   TeamOutlined,
   SearchOutlined,
   LockOutlined,
@@ -59,8 +62,6 @@ const UserManagement = () => {
   const myEmail = currentUser?.email || '';
   const myCountry = currentUser?.country || 'TW';
   const isRoot = myRole === 'root';
-  const isAdmin = myRole === 'admin';
-  const canChangeCountry = isRoot || isAdmin;
 
   // ===== 載入可指派角色列表 =====
   const fetchAssignableRoles = useCallback(async () => {
@@ -131,30 +132,9 @@ const UserManagement = () => {
     });
   };
 
-  // ===== 檢查是否為跨國使用者（admin 可看但不可操作）=====
-  const isCrossCountry = (record) => {
-    return isAdmin && record.country !== myCountry;
-  };
-
   // ===== 檢查是否可操作目標使用者 =====
   const canOperate = (record) => {
-    // 基本角色階層檢查
-    if (!canOperateUser(myRole, myEmail, record.role, record.email)) {
-      return false;
-    }
-    // 國家隔離：admin 只能操作自己國家的使用者（root 不受限）
-    if (isCrossCountry(record)) {
-      return false;
-    }
-    return true;
-  };
-
-  // 取得不可操作的原因提示文字
-  const getDisabledTooltip = (record) => {
-    if (isCrossCountry(record)) {
-      return t('userManagement.crossCountryReadonly');
-    }
-    return t('common.insufficientPermission');
+    return canOperateUser(myRole, myEmail, record.role, record.email);
   };
 
   // ===== 新增使用者 =====
@@ -165,11 +145,11 @@ const UserManagement = () => {
     const defaultRole = assignableRoles.length > 0
       ? assignableRoles[assignableRoles.length - 1].value
       : ROLES.USER;
-    // 非 admin/root 預設國家為自己的國家
+    // 非 root 預設國家為自己的國家
     form.setFieldsValue({
       role: defaultRole,
       status: 'active',
-      country: canChangeCountry ? undefined : myCountry,
+      country: isRoot ? undefined : myCountry,
     });
     setModalOpen(true);
   };
@@ -200,7 +180,6 @@ const UserManagement = () => {
           await userAPI.update(editingUser.email, {
             name: values.name,
             department: values.department,
-            country: canChangeCountry ? values.country : undefined,
             role: values.role,
           });
           message.success(t('userManagement.userUpdated'));
@@ -236,7 +215,8 @@ const UserManagement = () => {
   };
 
   // ===== 停用/啟用 =====
-  const handleToggleStatus = async (email, newStatus) => {
+  const handleToggleStatus = async (email, currentStatus) => {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     try {
       await userAPI.updateStatus(email, newStatus);
       message.success(newStatus === 'active' ? t('userManagement.accountEnabled') : t('userManagement.accountDisabled'));
@@ -282,8 +262,7 @@ const UserManagement = () => {
 
   // ===== 前端篩選（作為 API 篩選的補充）=====
   const filteredUsers = users.filter((u) => {
-    const translated = t(`departments.${u.department}`);
-    const deptLabel = (translated && !translated.startsWith('departments.')) ? translated : (u.department || '');
+    const deptLabel = t(`departments.${u.department}`) || u.department;
     const matchSearch =
       !searchText ||
       u.name.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -349,10 +328,7 @@ const UserManagement = () => {
       dataIndex: 'department',
       key: 'department',
       width: 120,
-      render: (dept) => {
-        const translated = t(`departments.${dept}`);
-        return (translated && !translated.startsWith('departments.')) ? translated : (dept || '');
-      },
+      render: (dept) => t(`departments.${dept}`) || dept,
     },
     {
       title: t('userManagement.country'),
@@ -373,7 +349,7 @@ const UserManagement = () => {
         if (!operable) {
           // 不可操作的使用者：顯示唯讀 Tag
           return (
-            <Tooltip title={getDisabledTooltip(record)}>
+            <Tooltip title={t('userManagement.cannotChangeRole')}>
               <Tag
                 color={ROLE_COLORS[role]}
                 icon={<LockOutlined />}
@@ -400,40 +376,23 @@ const UserManagement = () => {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
-      width: 130,
-      render: (status, record) => {
-        const operable = canOperate(record);
-        if (!operable) {
-          return status === 'active' ? (
-            <Tag color="green">{t('common.active')}</Tag>
-          ) : (
-            <Tag color="red">{t('common.inactive')}</Tag>
-          );
-        }
-        return (
-          <Select
-            value={status}
-            size="small"
-            style={{ width: 110 }}
-            onChange={(val) => handleToggleStatus(record.email, val)}
-            options={[
-              { value: 'active', label: <span style={{ color: '#52c41a' }}>● {t('common.active')}</span> },
-              { value: 'inactive', label: <span style={{ color: '#ff4d4f' }}>● {t('common.inactive')}</span> },
-            ]}
-            popupMatchSelectWidth={false}
-          />
-        );
-      },
+      width: 100,
+      render: (status) =>
+        status === 'active' ? (
+          <Badge status="success" text={<Tag color="green">{t('common.active')}</Tag>} />
+        ) : (
+          <Badge status="error" text={<Tag color="red">{t('common.inactive')}</Tag>} />
+        ),
     },
     {
       title: t('common.actions'),
       key: 'actions',
-      width: 160,
+      width: 280,
       render: (_, record) => {
         const operable = canOperate(record);
         return (
           <Space>
-            <Tooltip title={!operable ? getDisabledTooltip(record) : ''}>
+            <Tooltip title={!operable ? t('common.insufficientPermission') : ''}>
               <Button
                 type="text"
                 icon={<EditOutlined />}
@@ -444,6 +403,43 @@ const UserManagement = () => {
                 {t('common.edit')}
               </Button>
             </Tooltip>
+            {operable ? (
+              <Popconfirm
+                title={
+                  record.status === 'active'
+                    ? t('userManagement.confirmDisable')
+                    : t('userManagement.confirmEnable')
+                }
+                onConfirm={() => handleToggleStatus(record.email, record.status)}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+              >
+                {record.status === 'active' ? (
+                  <Button type="text" danger icon={<StopOutlined />}>
+                    {t('userManagement.disableAccount')}
+                  </Button>
+                ) : (
+                  <Button
+                    type="text"
+                    icon={<CheckCircleOutlined />}
+                    style={{ color: 'var(--primary-color)' }}
+                  >
+                    {t('userManagement.enableAccount')}
+                  </Button>
+                )}
+              </Popconfirm>
+            ) : (
+              <Tooltip title={t('common.insufficientPermission')}>
+                <Button
+                  type="text"
+                  icon={record.status === 'active' ? <StopOutlined /> : <CheckCircleOutlined />}
+                  disabled
+                  style={{ color: '#ccc' }}
+                >
+                  {record.status === 'active' ? t('userManagement.disableAccount') : t('userManagement.enableAccount')}
+                </Button>
+              </Tooltip>
+            )}
             {operable ? (
               <Popconfirm
                 title={t('userManagement.confirmDelete')}
@@ -457,7 +453,7 @@ const UserManagement = () => {
                 </Button>
               </Popconfirm>
             ) : (
-              <Tooltip title={getDisabledTooltip(record)}>
+              <Tooltip title={t('common.insufficientPermission')}>
                 <Button
                   type="text"
                   icon={<DeleteOutlined />}
@@ -498,8 +494,8 @@ const UserManagement = () => {
             allowClear
             options={allRoleOptions}
           />
-          {/* root / admin 可以篩選國家 */}
-          {canChangeCountry && (
+          {/* 只有 root 可以篩選國家 */}
+          {isRoot && (
             <Select
               placeholder={t('userManagement.filterCountry')}
               style={{ width: 120 }}
@@ -607,12 +603,12 @@ const UserManagement = () => {
             name="country"
             label={t('userManagement.countryLabel')}
             rules={[{ required: true, message: t('userManagement.countryRequired') }]}
-            extra={!canChangeCountry ? t('userManagement.countryHint') : ''}
+            extra={!isRoot ? t('userManagement.countryHint') : ''}
           >
             <Select
               placeholder={t('userManagement.countryPlaceholder')}
               options={countryOptions}
-              disabled={!canChangeCountry}
+              disabled={!!editingUser || !isRoot}
             />
           </Form.Item>
           <Form.Item
