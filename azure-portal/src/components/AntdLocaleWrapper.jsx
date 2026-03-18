@@ -2,18 +2,12 @@ import React, { useMemo } from 'react';
 import { ConfigProvider } from 'antd';
 import zhTW from 'antd/locale/zh_TW';
 import enUS from 'antd/locale/en_US';
-import jaJP from 'antd/locale/ja_JP';
-import thTH from 'antd/locale/th_TH';
-import viVN from 'antd/locale/vi_VN';
 import { useLanguage } from '../contexts/LanguageContext';
 
 /** 語言代碼 → antd locale 對應 */
 const ANTD_LOCALE_MAP = {
   'zh-TW': zhTW,
   en: enUS,
-  ja: jaJP,
-  th: thTH,
-  vi: viVN,
 };
 
 /**

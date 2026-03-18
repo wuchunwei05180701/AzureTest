@@ -3,10 +3,10 @@
  *
  * 國家 → 語言對應：
  *   TW → zh-TW (繁體中文)
- *   JP → ja    (日文)
+ *   JP → en    (英文)
  *   SG → en    (英文)
- *   TH → th    (泰文)
- *   VN → vi    (越南文)
+ *   TH → en    (英文)
+ *   VN → en    (英文)
  *   PH → en    (英文)
  *
  * 預設語言：zh-TW
@@ -14,26 +14,20 @@
 
 import zhTW from './locales/zh-TW';
 import en from './locales/en';
-import ja from './locales/ja';
-import th from './locales/th';
-import vi from './locales/vi';
 
 /** 所有語言包 */
 export const locales = {
   'zh-TW': zhTW,
   en,
-  ja,
-  th,
-  vi,
 };
 
 /** 國家代碼 → 語言代碼 對應表 */
 export const COUNTRY_LANGUAGE_MAP = {
   TW: 'zh-TW',
-  JP: 'ja',
+  JP: 'en',
   SG: 'en',
-  TH: 'th',
-  VN: 'vi',
+  TH: 'en',
+  VN: 'en',
   PH: 'en',
 };
 
@@ -44,9 +38,6 @@ export const DEFAULT_LANGUAGE = 'zh-TW';
 export const LANGUAGE_LABELS = {
   'zh-TW': '繁體中文',
   en: 'English',
-  ja: '日本語',
-  th: 'ภาษาไทย',
-  vi: 'Tiếng Việt',
 };
 
 /**

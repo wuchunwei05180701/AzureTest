@@ -104,6 +104,7 @@ async def create_announcement(
             subject=body.subject,
             content_en=body.content_en,
             files=body.files or [],
+            library_docs=body.library_docs or [],
             publish_status=body.publish_status,
         )
         session.add(notice)
@@ -282,6 +283,8 @@ async def update_announcement(
         update_data["publish_status"] = body.publish_status
     if body.files is not None:
         update_data["files"] = body.files
+    if body.library_docs is not None:
+        update_data["library_docs"] = body.library_docs
 
     if not update_data:
         raise HTTPException(status_code=400, detail="沒有要更新的欄位")
@@ -606,6 +609,7 @@ def _notice_to_response(notice: LocalNotice) -> AnnouncementResponse:
         subject=notice.subject,
         content_en=notice.content_en,
         files=notice.files or [],
+        library_docs=notice.library_docs or [],
         publish_status=notice.publish_status,
         created_at=notice.created_at,
         updated_at=notice.updated_at,

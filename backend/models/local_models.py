@@ -41,6 +41,7 @@ class LocalNotice(LocalBase):
     subject = Column(String(255), nullable=False)
     content_en = Column(Text)
     files = Column(JSONB, default=[])
+    library_docs = Column(JSONB, default=[])  # 關聯的圖書館文件 [{"doc_id": "xxx", "name": "文件名", "library_name": "館名"}]
     publish_status = Column(String(20), default="draft")  # draft / published
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

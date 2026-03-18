@@ -1,35 +1,27 @@
-// ===== 角色定義 =====
+// ===== 角色定義（v2：3角色版本）=====
 export const ROLES = {
-  SUPER_ADMIN: 'super_admin',
-  PLATFORM_ADMIN: 'platform_admin',
-  USER_MANAGER: 'user_manager',
-  LIBRARY_MANAGER: 'library_manager',
-  USER: 'user',
+  ROOT:  'root',   // 最高管理者（對應原 super_admin）
+  ADMIN: 'admin',  // 一般管理者（合併原 platform_admin + user_manager + library_manager）
+  USER:  'user',   // 一般使用者
 };
 
 export const ROLE_LABELS = {
-  [ROLES.SUPER_ADMIN]: '台灣最高管理者',
-  [ROLES.PLATFORM_ADMIN]: '平台管理者',
-  [ROLES.USER_MANAGER]: '用戶管理者',
-  [ROLES.LIBRARY_MANAGER]: '圖書館管理者',
-  [ROLES.USER]: '一般使用者',
+  [ROLES.ROOT]:  '最高管理者',
+  [ROLES.ADMIN]: '管理者',
+  [ROLES.USER]:  '一般使用者',
 };
 
 export const ROLE_COLORS = {
-  [ROLES.SUPER_ADMIN]: '#FFD700',
-  [ROLES.PLATFORM_ADMIN]: '#FF6B6B',
-  [ROLES.USER_MANAGER]: '#4ECDC4',
-  [ROLES.LIBRARY_MANAGER]: '#45B7D1',
-  [ROLES.USER]: '#95E1D3',
+  [ROLES.ROOT]:  '#FFD700',
+  [ROLES.ADMIN]: '#FF6B6B',
+  [ROLES.USER]:  '#95E1D3',
 };
 
 // 角色階層等級（數字越大權限越高）
 export const ROLE_HIERARCHY = {
-  [ROLES.SUPER_ADMIN]: 4,
-  [ROLES.PLATFORM_ADMIN]: 3,
-  [ROLES.USER_MANAGER]: 2,
-  [ROLES.LIBRARY_MANAGER]: 2,
-  [ROLES.USER]: 1,
+  [ROLES.ROOT]:  3,
+  [ROLES.ADMIN]: 2,
+  [ROLES.USER]:  1,
 };
 
 // 取得角色等級
@@ -54,25 +46,17 @@ export const getAssignableRoles = (operatorRole) => {
     .sort((a, b) => (ROLE_HIERARCHY[b.value] || 0) - (ROLE_HIERARCHY[a.value] || 0));
 };
 
-// 角色權限定義
+// 角色權限定義（v2）
 export const ROLE_PERMISSIONS = {
-  [ROLES.SUPER_ADMIN]: [
+  [ROLES.ROOT]: [
     'view_announcements', 'use_agents', 'view_library', 'chat_history',
     'manage_users', 'manage_library', 'manage_announcements', 'manage_agent_permissions',
     'access_all_agents', 'access_all_docs', 'cross_country_logs',
   ],
-  [ROLES.PLATFORM_ADMIN]: [
+  [ROLES.ADMIN]: [
     'view_announcements', 'use_agents', 'view_library', 'chat_history',
     'manage_users', 'manage_library', 'manage_announcements', 'manage_agent_permissions',
     'access_all_agents', 'access_all_docs',
-  ],
-  [ROLES.USER_MANAGER]: [
-    'view_announcements', 'use_agents', 'view_library', 'chat_history',
-    'manage_users',
-  ],
-  [ROLES.LIBRARY_MANAGER]: [
-    'view_announcements', 'use_agents', 'view_library', 'chat_history',
-    'manage_library',
   ],
   [ROLES.USER]: [
     'view_announcements', 'use_agents', 'view_library', 'chat_history',
@@ -352,7 +336,7 @@ export const currentUser = {
   id: 1,
   name: 'Tina',
   email: 'tina@ctbc.com',
-  role: ROLES.PLATFORM_ADMIN,
+  role: ROLES.ADMIN,
   department: 'planning',
   country: 'TW',
   memberCount: 18,
@@ -361,12 +345,12 @@ export const currentUser = {
 
 // ===== 使用者列表（用於權限設定）=====
 export const userList = [
-  { id: 1, name: 'Tina', email: 'tina@ctbc.com', department: 'planning', role: ROLES.PLATFORM_ADMIN, country: 'TW', status: 'active' },
-  { id: 2, name: 'John', email: 'john@ctbc.com', department: 'rd', role: ROLES.USER_MANAGER, country: 'TW', status: 'active' },
-  { id: 3, name: 'Alice', email: 'alice@ctbc.com', department: 'marketing', role: ROLES.LIBRARY_MANAGER, country: 'TW', status: 'active' },
-  { id: 4, name: 'Bob', email: 'bob@ctbc.com.sg', department: 'finance', role: ROLES.USER, country: 'SG', status: 'active' },
-  { id: 5, name: 'Carol', email: 'carol@ctbc.com', department: 'hr', role: ROLES.USER, country: 'TW', status: 'active' },
-  { id: 6, name: 'David', email: 'david@ctbc.co.jp', department: 'rd', role: ROLES.USER, country: 'JP', status: 'active' },
-  { id: 7, name: 'Eva', email: 'eva@ctbc.com', department: 'planning', role: ROLES.USER, country: 'TW', status: 'inactive' },
-  { id: 8, name: 'Frank', email: 'frank@ctbc.co.th', department: 'marketing', role: ROLES.USER, country: 'TH', status: 'active' },
+  { id: 1, name: 'Tina',  email: 'tina@ctbc.com',    department: 'planning',  role: ROLES.ADMIN, country: 'TW', status: 'active' },
+  { id: 2, name: 'John',  email: 'john@ctbc.com',    department: 'rd',        role: ROLES.ADMIN, country: 'TW', status: 'active' },
+  { id: 3, name: 'Alice', email: 'alice@ctbc.com',   department: 'marketing', role: ROLES.ADMIN, country: 'TW', status: 'active' },
+  { id: 4, name: 'Bob',   email: 'bob@ctbc.com.sg',  department: 'finance',   role: ROLES.USER,  country: 'SG', status: 'active' },
+  { id: 5, name: 'Carol', email: 'carol@ctbc.com',   department: 'hr',        role: ROLES.USER,  country: 'TW', status: 'active' },
+  { id: 6, name: 'David', email: 'david@ctbc.co.jp', department: 'rd',        role: ROLES.USER,  country: 'JP', status: 'active' },
+  { id: 7, name: 'Eva',   email: 'eva@ctbc.com',     department: 'planning',  role: ROLES.USER,  country: 'TW', status: 'inactive' },
+  { id: 8, name: 'Frank', email: 'frank@ctbc.co.th', department: 'marketing', role: ROLES.USER,  country: 'TH', status: 'active' },
 ];

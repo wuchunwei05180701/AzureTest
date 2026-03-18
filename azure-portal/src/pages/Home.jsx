@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Modal, Button, Tag, Spin, message, List, Input, Pagination, Empty } from 'antd';
+import { Modal, Button, Tag, Spin, message, List, Input, Pagination, Empty, Space } from 'antd';
 import {
   SoundOutlined,
   RobotOutlined,
@@ -450,6 +450,93 @@ const Home = () => {
                   <PaperClipOutlined style={{ marginRight: 4 }} />
                   {t('home.noAttachment')}
                 </div>
+              </div>
+            )}
+
+            {/* 圖書館文件附件 */}
+            {selectedAnnouncement.libraryDocs?.length > 0 && (
+              <div style={{ marginTop: 16, padding: '12px 16px', background: '#f6f0ff', borderRadius: 8, border: '1px solid #d3adf7' }}>
+                <div style={{ fontWeight: 500, marginBottom: 8, color: '#722ed1' }}>
+                  <BookOutlined style={{ marginRight: 6 }} />
+                  {t('home.relatedLibraryDocs')}
+                </div>
+                {selectedAnnouncement.libraryDocs.map((doc) => (
+                  <div
+                    key={doc.docId}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 10px',
+                      marginBottom: 4,
+                      background: '#fff',
+                      borderRadius: 4,
+                      fontSize: 13,
+                    }}
+                  >
+                    <span
+                      style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                      onClick={() => {
+                        handleCloseAnnouncement();
+                        navigate(`/library?doc=${doc.docId}`);
+                      }}
+                    >
+                      <BookOutlined style={{ marginRight: 6, color: '#722ed1' }} />
+                      <span style={{ fontWeight: 500 }}>{doc.name}</span>
+                      {doc.libraryName && (
+                        <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>({doc.libraryName})</span>
+                      )}
+                    </span>
+                    <Space size={4}>
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        style={{ color: '#722ed1', padding: 0 }}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const res = await libraryAPI.download(doc.docId, effectiveCountry);
+                            let downloadName = doc.name || 'document';
+                            const disposition = res.headers['content-disposition'];
+                            if (disposition) {
+                              const utf8Match = disposition.match(/filename\*=utf-8''(.+)/i);
+                              const plainMatch = disposition.match(/filename="?([^";\n]+)"?/i);
+                              if (utf8Match) downloadName = decodeURIComponent(utf8Match[1]);
+                              else if (plainMatch) downloadName = plainMatch[1];
+                            }
+                            const blob = new Blob([res.data]);
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = downloadName;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                          } catch (err) {
+                            message.error(t('home.downloadFailed') + '：' + (err.response?.data?.detail || err.message));
+                          }
+                        }}
+                      >
+                        {t('home.downloadLibraryDoc')}
+                      </Button>
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<LinkOutlined />}
+                        style={{ color: '#999', padding: 0 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCloseAnnouncement();
+                          navigate(`/library?doc=${doc.docId}`);
+                        }}
+                      >
+                        {t('home.viewInLibrary')}
+                      </Button>
+                    </Space>
+                  </div>
+                ))}
               </div>
             )}
           </div>

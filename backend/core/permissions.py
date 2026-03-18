@@ -1,5 +1,6 @@
 """
 角色權限定義與檢查
+v2: 3 角色版本（root / admin / user）
 """
 from enum import Enum
 from functools import wraps
@@ -11,49 +12,36 @@ from core.security import get_current_user_payload
 
 
 class Role(str, Enum):
-    SUPER_ADMIN = "super_admin"
-    PLATFORM_ADMIN = "platform_admin"
-    USER_MANAGER = "user_manager"
-    LIBRARY_MANAGER = "library_manager"
-    USER = "user"
+    ROOT  = "root"   # 最高管理者（對應原 super_admin）
+    ADMIN = "admin"  # 一般管理者（合併原 platform_admin + user_manager + library_manager）
+    USER  = "user"   # 一般使用者
 
 
 ROLE_LABELS = {
-    Role.SUPER_ADMIN: "台灣最高管理者",
-    Role.PLATFORM_ADMIN: "平台管理者",
-    Role.USER_MANAGER: "用戶管理者",
-    Role.LIBRARY_MANAGER: "圖書館管理者",
-    Role.USER: "一般使用者",
+    Role.ROOT:  "最高管理者",
+    Role.ADMIN: "管理者",
+    Role.USER:  "一般使用者",
 }
 
 # 角色階層等級（數字越大權限越高）
 ROLE_HIERARCHY = {
-    Role.SUPER_ADMIN: 4,
-    Role.PLATFORM_ADMIN: 3,
-    Role.USER_MANAGER: 2,
-    Role.LIBRARY_MANAGER: 2,
-    Role.USER: 1,
+    Role.ROOT:  3,
+    Role.ADMIN: 2,
+    Role.USER:  1,
 }
 
 ROLE_PERMISSIONS = {
-    Role.SUPER_ADMIN: [
+    Role.ROOT: [
         "view_announcements", "use_agents", "view_library", "chat_history",
         "manage_users", "manage_library", "manage_announcements",
         "manage_agent_permissions", "access_all_agents", "access_all_docs",
-        "cross_country_logs",
+        "cross_country_logs",          # root 獨有：跨國查看
     ],
-    Role.PLATFORM_ADMIN: [
+    Role.ADMIN: [
         "view_announcements", "use_agents", "view_library", "chat_history",
         "manage_users", "manage_library", "manage_announcements",
         "manage_agent_permissions", "access_all_agents", "access_all_docs",
-    ],
-    Role.USER_MANAGER: [
-        "view_announcements", "use_agents", "view_library", "chat_history",
-        "manage_users",
-    ],
-    Role.LIBRARY_MANAGER: [
-        "view_announcements", "use_agents", "view_library", "chat_history",
-        "manage_library",
+        # 無 cross_country_logs
     ],
     Role.USER: [
         "view_announcements", "use_agents", "view_library", "chat_history",

@@ -61,7 +61,7 @@ const UserManagement = () => {
   const myRole = currentUser?.role || 'user';
   const myEmail = currentUser?.email || '';
   const myCountry = currentUser?.country || 'TW';
-  const isSuperAdmin = myRole === 'super_admin';
+  const isRoot = myRole === 'root';
 
   // ===== 載入可指派角色列表 =====
   const fetchAssignableRoles = useCallback(async () => {
@@ -145,11 +145,11 @@ const UserManagement = () => {
     const defaultRole = assignableRoles.length > 0
       ? assignableRoles[assignableRoles.length - 1].value
       : ROLES.USER;
-    // 非 super_admin 預設國家為自己的國家
+    // 非 root 預設國家為自己的國家
     form.setFieldsValue({
       role: defaultRole,
       status: 'active',
-      country: isSuperAdmin ? undefined : myCountry,
+      country: isRoot ? undefined : myCountry,
     });
     setModalOpen(true);
   };
@@ -494,8 +494,8 @@ const UserManagement = () => {
             allowClear
             options={allRoleOptions}
           />
-          {/* 只有 super_admin 可以篩選國家 */}
-          {isSuperAdmin && (
+          {/* 只有 root 可以篩選國家 */}
+          {isRoot && (
             <Select
               placeholder={t('userManagement.filterCountry')}
               style={{ width: 120 }}
@@ -603,12 +603,12 @@ const UserManagement = () => {
             name="country"
             label={t('userManagement.countryLabel')}
             rules={[{ required: true, message: t('userManagement.countryRequired') }]}
-            extra={!isSuperAdmin ? t('userManagement.countryHint') : ''}
+            extra={!isRoot ? t('userManagement.countryHint') : ''}
           >
             <Select
               placeholder={t('userManagement.countryPlaceholder')}
               options={countryOptions}
-              disabled={!!editingUser || !isSuperAdmin}
+              disabled={!!editingUser || !isRoot}
             />
           </Form.Item>
           <Form.Item

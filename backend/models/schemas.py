@@ -102,6 +102,7 @@ class AnnouncementCreate(BaseModel):
     content_en: Optional[str] = Field(None, max_length=300)
     publish_status: str = "draft"
     files: Optional[List[Dict[str, Any]]] = []
+    library_docs: Optional[List[Dict[str, Any]]] = []  # 關聯的圖書館文件
 
 
 class AnnouncementUpdate(BaseModel):
@@ -109,6 +110,7 @@ class AnnouncementUpdate(BaseModel):
     content_en: Optional[str] = Field(None, max_length=300)
     publish_status: Optional[str] = None
     files: Optional[List[Dict[str, Any]]] = None
+    library_docs: Optional[List[Dict[str, Any]]] = None  # 關聯的圖書館文件
 
 
 class AnnouncementResponse(BaseModel):
@@ -116,6 +118,7 @@ class AnnouncementResponse(BaseModel):
     subject: str
     content_en: Optional[str] = None
     files: List[Dict[str, Any]] = []
+    library_docs: List[Dict[str, Any]] = []  # 關聯的圖書館文件
     publish_status: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

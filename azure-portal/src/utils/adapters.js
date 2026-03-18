@@ -71,6 +71,18 @@ export function adaptAnnouncement(apiData) {
     });
   }
 
+  // 關聯的圖書館文件
+  const libraryDocs = [];
+  if (Array.isArray(apiData.library_docs) && apiData.library_docs.length > 0) {
+    apiData.library_docs.forEach((doc) => {
+      libraryDocs.push({
+        docId: doc.doc_id || '',
+        name: doc.name || '',
+        libraryName: doc.library_name || '',
+      });
+    });
+  }
+
   // 向後相容：attachment 取第一個
   const attachment = attachments.length > 0 ? attachments[0] : null;
 
@@ -83,6 +95,7 @@ export function adaptAnnouncement(apiData) {
     publish_status: apiData.publish_status ?? 'draft',
     attachment,
     attachments, // 多附件陣列
+    libraryDocs, // 關聯的圖書館文件
   };
 }
 
@@ -475,11 +488,24 @@ export function toAnnouncementCreate(frontendData) {
     });
   }
 
+  // 關聯的圖書館文件
+  const library_docs = [];
+  if (Array.isArray(frontendData.libraryDocs)) {
+    frontendData.libraryDocs.forEach((doc) => {
+      library_docs.push({
+        doc_id: doc.docId || doc.doc_id || '',
+        name: doc.name || '',
+        library_name: doc.libraryName || doc.library_name || '',
+      });
+    });
+  }
+
   return {
     subject: frontendData.subject ?? '',
     content_en: frontendData.content ?? '',
     publish_status: frontendData.publishStatus || 'draft',
     files,
+    library_docs,
   };
 }
 
@@ -522,6 +548,19 @@ export function toAnnouncementUpdate(frontendData) {
           file_url: frontendData.attachment.pdfUrl || '',
         },
       ];
+    }
+  }
+
+  // 關聯的圖書館文件
+  if (frontendData.libraryDocs !== undefined) {
+    if (!frontendData.libraryDocs || frontendData.libraryDocs.length === 0) {
+      payload.library_docs = [];
+    } else {
+      payload.library_docs = frontendData.libraryDocs.map((doc) => ({
+        doc_id: doc.docId || doc.doc_id || '',
+        name: doc.name || '',
+        library_name: doc.libraryName || doc.library_name || '',
+      }));
     }
   }
 

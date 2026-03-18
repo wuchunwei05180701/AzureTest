@@ -32,3 +32,202 @@
 .settings-content .ant-table-thead > tr > th {
   background: #fafafa;
 }
+
+/* ===== Library Settings - Tab Bar ===== */
+.lib-tab-bar {
+  background: var(--white);
+  border-radius: 8px;
+  box-shadow: var(--card-shadow);
+  padding: 8px;
+}
+
+.lib-tab-bar .ant-segmented {
+  background: #f0f0f0;
+  border-radius: 6px;
+}
+
+.lib-tab-bar .ant-segmented-item {
+  border-radius: 6px;
+  transition: all 0.25s;
+}
+
+.lib-tab-bar .ant-segmented-item-selected {
+  background: var(--white) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.lib-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.lib-tab-count {
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+/* ===== Library Settings - Tab Content ===== */
+.lib-tab-content {
+  background: var(--white);
+  border-radius: 8px;
+  box-shadow: var(--card-shadow);
+  padding: 20px;
+  min-height: 400px;
+}
+
+.lib-tab-content .ant-table {
+  background: transparent;
+}
+
+.lib-tab-content .ant-table-thead > tr > th {
+  background: #fafafa;
+}
+
+/* ===== Library Settings - Toolbar ===== */
+.lib-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.lib-toolbar-search {
+  max-width: 320px;
+}
+
+.lib-toolbar-search .ant-input {
+  border-radius: 8px;
+}
+
+.lib-toolbar-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.lib-filter-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+/* ===== Library Settings - Catalog Grid ===== */
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.catalog-card {
+  background: var(--white);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.catalog-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-color);
+}
+
+/* Card image area */
+.catalog-card-image-area {
+  width: 100%;
+  height: 140px;
+  overflow: hidden;
+  background: #f5f7fa;
+  flex-shrink: 0;
+}
+
+.catalog-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+
+.catalog-card:hover .catalog-card-img {
+  transform: scale(1.05);
+}
+
+.catalog-card-img-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f0f5ff 0%, #e6f0ff 100%);
+}
+
+/* Card body */
+.catalog-card-body {
+  padding: 14px 16px 8px;
+  flex: 1;
+}
+
+.catalog-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.catalog-card-stat {
+  margin-bottom: 4px;
+}
+
+/* Card actions */
+.catalog-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 12px;
+  border-top: 1px solid #f5f5f5;
+  gap: 4px;
+}
+
+/* ===== RWD ===== */
+@media (max-width: 768px) {
+  .catalog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+  }
+
+  .lib-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lib-toolbar-search {
+    max-width: 100%;
+  }
+
+  .lib-toolbar-filters {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .catalog-grid {
+    grid-template-columns: 1fr;
+  }
+}
