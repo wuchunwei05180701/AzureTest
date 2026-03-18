@@ -35,21 +35,21 @@ router = APIRouter()
 def _resolve_country_filter(payload: dict, query_country: Optional[str] = None) -> Optional[str]:
     """
     解析國家篩選條件：
-    - root：可指定任意國家，或不指定（看全部）
+    - super_admin：可指定任意國家，或不指定（看全部）
     - 其他角色：強制只看自己國家
     """
     user_country = payload.get("country", "TW")
     role = payload.get("role", "user")
 
-    if role == "root":
-        # root 可以指定國家，也可以不指定（看全部）
+    if role == "super_admin":
+        # super_admin 可以指定國家，也可以不指定（看全部）
         if query_country:
             if query_country not in settings.LOCAL_DB_CONFIG:
                 raise HTTPException(status_code=400, detail=f"國家 [{query_country}] 不存在")
             return query_country
         return None  # None = 不篩選，看全部
     else:
-        # 非 root 強制只看自己國家
+        # 非 super_admin 強制只看自己國家
         return user_country
 
 
@@ -126,8 +126,8 @@ async def create_user(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"無效的角色: {body.role}")
 
-    # 國家隔離：非 root 只能建立自己國家的使用者
-    if operator_role != "root" and body.country != operator_country:
+    # 國家隔離：非 super_admin 只能建立自己國家的使用者
+    if operator_role != "super_admin" and body.country != operator_country:
         raise HTTPException(
             status_code=403,
             detail=f"權限不足：只能建立 {operator_country} 國家的使用者"
@@ -187,8 +187,8 @@ async def update_user(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 root 不能編輯其他國家的使用者
-        if operator_role != "root" and target.country_code != operator_country:
+        # 國家隔離：非 super_admin 不能編輯其他國家的使用者
+        if operator_role != "super_admin" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法編輯其他國家的使用者")
 
         # 階層檢查：不能編輯自己、不能編輯等級 >= 自己的使用者
@@ -250,8 +250,8 @@ async def update_user_status(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 root 不能操作其他國家的使用者
-        if operator_role != "root" and target.country_code != operator_country:
+        # 國家隔離：非 super_admin 不能操作其他國家的使用者
+        if operator_role != "super_admin" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法操作其他國家的使用者")
 
         # 階層檢查：不能停用自己、不能停用等級 >= 自己的使用者
@@ -299,8 +299,8 @@ async def update_user_role(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 root 不能操作其他國家的使用者
-        if operator_role != "root" and target.country_code != operator_country:
+        # 國家隔離：非 super_admin 不能操作其他國家的使用者
+        if operator_role != "super_admin" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法操作其他國家的使用者")
 
         # 階層檢查：不能改自己、不能改等級 >= 自己的人、不能指派 >= 自己的角色
@@ -344,8 +344,8 @@ async def delete_user(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 root 不能刪除其他國家的使用者
-        if operator_role != "root" and target.country_code != operator_country:
+        # 國家隔離：非 super_admin 不能刪除其他國家的使用者
+        if operator_role != "super_admin" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法刪除其他國家的使用者")
 
         # 階層檢查：不能刪自己、不能刪等級 >= 自己的使用者

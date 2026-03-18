@@ -416,11 +416,13 @@ const zhTW = {
     totalCount: '總計: {total} 人 | 啟用: {active} 人',
   },
 
-  // ===== 角色名稱（v2：3角色版本）=====
+  // ===== 角色名稱 =====
   roles: {
-    root:  '最高管理者',
-    admin: '管理者',
-    user:  '一般使用者',
+    super_admin: '台灣最高管理者',
+    platform_admin: '平台管理者',
+    user_manager: '用戶管理者',
+    library_manager: '圖書館管理者',
+    user: '一般使用者',
   },
 
   // ===== 國家名稱 =====

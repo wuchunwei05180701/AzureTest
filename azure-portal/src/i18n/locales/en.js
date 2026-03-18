@@ -416,11 +416,13 @@ const en = {
     totalCount: 'Total: {total} | Active: {active}',
   },
 
-  // ===== Roles (v2: 3 roles) =====
+  // ===== Roles =====
   roles: {
-    root:  'Root (Super Admin)',
-    admin: 'Admin',
-    user:  'User',
+    super_admin: 'Superuser (Root)',
+    platform_admin: 'Administrator',
+    user_manager: 'User Manager',
+    library_manager: 'Library Manager',
+    user: 'User',
   },
 
   // ===== Country Names =====
