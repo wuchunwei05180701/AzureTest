@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Upload, Popconfirm, Tag, message, Space, Spin, Divider, Tooltip, Segmented, Dropdown, Empty } from 'antd';
-import { PlusOutlined, DeleteOutlined, UploadOutlined, DatabaseOutlined, UserOutlined, GlobalOutlined, FolderAddOutlined, FolderOutlined, EditOutlined, PaperClipOutlined, CloudUploadOutlined, PictureOutlined, InboxOutlined, FileTextOutlined, SearchOutlined, MoreOutlined } from '@ant-design/icons';
-import { libraryAPI, piiAPI } from '../../services/api';
+import { Table, Button, Modal, Form, Input, Select, Upload, Popconfirm, Tag, message, Space, Spin, Divider, Tooltip, Segmented, Dropdown, Empty, Checkbox } from 'antd';
+import { PlusOutlined, DeleteOutlined, UploadOutlined, DatabaseOutlined, UserOutlined, GlobalOutlined, FolderAddOutlined, FolderOutlined, EditOutlined, PaperClipOutlined, CloudUploadOutlined, PictureOutlined, InboxOutlined, FileTextOutlined, SearchOutlined, MoreOutlined, HomeOutlined } from '@ant-design/icons';
+import { libraryAPI, piiAPI, userAPI } from '../../services/api';
 import { adaptLibraryDocs, adaptCatalogs } from '../../utils/adapters';
-import { libraries as mockLibraries, userList } from '../../data/mockData';
+import { libraries as mockLibraries, userList as mockUserList } from '../../data/mockData';
 import { useCountry } from '../../contexts/CountryContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import '../Settings.css';
@@ -57,6 +57,9 @@ const LibrarySettings = () => {
   const [imageUploading, setImageUploading] = useState(false);
   const [existingImageUrl, setExistingImageUrl] = useState(null);
   const [piiScanning, setPiiScanning] = useState(false);
+  const [permSearch, setPermSearch] = useState('');
+  const [realUserList, setRealUserList] = useState([]);
+  const [userListLoading, setUserListLoading] = useState(false);
 
   const handlePiiScan = async (newFileList, setListFn) => {
     if (!newFileList || newFileList.length === 0) return true;
@@ -199,12 +202,12 @@ const LibrarySettings = () => {
       const v = await form.validateFields();
       setUploadLoading(true);
       const fd = new FormData();
-      if (v.file?.fileList?.length > 0) v.file.fileList.forEach((f) => fd.append('file', f.originFileObj));
+      const fileList = v.file?.fileList || [];
+      if (fileList.length > 0) fd.append('file', fileList[0].originFileObj);
       const p = { library_name: v.libraryName, name: v.name, description: v.description || '' };
       if (isSuperAdmin && v.target_country) p.country = v.target_country;
       await libraryAPI.upload(fd, { params: p });
-      const fc = v.file?.fileList?.length || 0;
-      message.success(fc > 1 ? t('librarySettings.documentUploadedMultiple', { count: fc }) : t('librarySettings.documentUploaded'));
+      message.success(t('librarySettings.documentUploaded'));
       setUploadModal(false);
       form.resetFields();
       fetchLibrary(effectiveCountry);
@@ -242,10 +245,10 @@ const LibrarySettings = () => {
       if (Object.keys(ud).length > 0) await libraryAPI.update(editModal.id, ud, cp);
       if (editFileList.length > 0) {
         const fd = new FormData();
-        editFileList.forEach((f) => fd.append('file', f.originFileObj || f));
+        fd.append('file', editFileList[0].originFileObj || editFileList[0]);
         try {
           await libraryAPI.uploadFile(editModal.id, fd, cp);
-          message.success(t('librarySettings.appendUploaded', { count: editFileList.length }));
+          message.success(t('librarySettings.documentUploaded'));
         } catch (ue) {
           message.warning(t('librarySettings.appendUploadFailed') + ': ' + (ue.response?.data?.detail || ue.message));
         }
@@ -270,7 +273,21 @@ const LibrarySettings = () => {
     } catch (e) { message.error(t('librarySettings.attachmentDeleteFailed') + ': ' + (e.response?.data?.detail || e.message)); }
   };
 
-  const openPermModal = (doc) => { setPermUsers([1, 2]); setPermModal(doc); };
+  const openPermModal = async (doc) => {
+    const existing = doc.auth_rules?.authorized_users || [];
+    setPermUsers(existing);
+    setPermModal(doc);
+    setUserListLoading(true);
+    try {
+      const res = await userAPI.list(isSuperAdmin ? { country: effectiveCountry } : {});
+      const users = Array.isArray(res.data) ? res.data : (res.data?.users || res.data?.items || []);
+      setRealUserList(users.length > 0 ? users : mockUserList);
+    } catch {
+      setRealUserList(mockUserList);
+    } finally {
+      setUserListLoading(false);
+    }
+  };
 
   const handlePermSave = async () => {
     if (!permModal) return;
@@ -278,8 +295,15 @@ const LibrarySettings = () => {
       await libraryAPI.updateAuth(permModal.id, { authorized_roles: [], authorized_users: permUsers, exception_list: [] });
       message.success(t('librarySettings.permissionUpdated'));
       setPermModal(null);
+      setPermSearch('');
       fetchLibrary(effectiveCountry);
-    } catch (e) { message.error(t('librarySettings.updateFailed') + ': ' + (e.response?.data?.detail || e.message)); }
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      const errMsg = Array.isArray(detail)
+        ? detail.map((d) => d.msg || JSON.stringify(d)).join(', ')
+        : (detail || e.message);
+      message.error(t('librarySettings.updateFailed') + ': ' + errMsg);
+    }
   };
 
   const handleDeleteLibrary = async (name) => {
@@ -383,15 +407,16 @@ const LibrarySettings = () => {
 
   const fileUploadValueHandler = (e) => {
     if (!e || !e.fileList) return e;
-    const totalSize = e.fileList.reduce((sum, f) => sum + (f.originFileObj?.size || f.size || 0), 0);
-    if (totalSize > 100 * 1024 * 1024) {
-      message.error(t('librarySettings.fileSizeExceeded', { size: (totalSize / 1024 / 1024).toFixed(1) }));
-      return { fileList: e.fileList.slice(0, -1) };
+    const latestFile = e.fileList.slice(-1);
+    const fileSize = latestFile[0]?.originFileObj?.size || latestFile[0]?.size || 0;
+    if (fileSize > 100 * 1024 * 1024) {
+      message.error(t('librarySettings.fileSizeExceeded', { size: (fileSize / 1024 / 1024).toFixed(1) }));
+      return { fileList: [] };
     }
-    if (e.fileList.length > 0) {
-      handlePiiScan(e.fileList, (cleared) => { form.setFieldsValue({ file: { fileList: cleared } }); });
+    if (latestFile.length > 0) {
+      handlePiiScan(latestFile, (cleared) => { form.setFieldsValue({ file: { fileList: cleared } }); });
     }
-    return e;
+    return { fileList: latestFile };
   };
 
   return (
@@ -449,7 +474,15 @@ const LibrarySettings = () => {
                 />
                 <Button
                   type="primary"
-                  icon={<FolderAddOutlined />}
+                  icon={
+                    <span role="img" className="anticon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10.5z" />
+                        <line x1="12" y1="9" x2="12" y2="17" />
+                        <line x1="8" y1="13" x2="16" y2="13" />
+                      </svg>
+                    </span>
+                  }
                   onClick={() => setAddCatalogModal(true)}
                   style={{ background: 'var(--primary-color)', borderColor: 'var(--primary-color)' }}
                 >
@@ -667,7 +700,7 @@ const LibrarySettings = () => {
             getValueFromEvent={fileUploadValueHandler}
           >
             <Upload
-              multiple
+              maxCount={1}
               accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp"
               beforeUpload={() => false}
             >
@@ -724,19 +757,20 @@ const LibrarySettings = () => {
             </Form.Item>
           )}
 
-          <Form.Item label={t('librarySettings.appendUpload')} extra={piiScanning ? t('pii.scanningFiles') : t('librarySettings.appendUploadHint')}>
+          <Form.Item label={t('librarySettings.appendUpload')} extra={piiScanning ? t('pii.scanningFiles') : '選擇新檔案將取代目前的附件'}>
             <Upload
-              multiple
+              maxCount={1}
               accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp"
               fileList={editFileList}
               onChange={({ fileList: newFileList }) => {
-                const totalSize = newFileList.reduce((sum, f) => sum + (f.originFileObj?.size || f.size || 0), 0);
-                if (totalSize > 100 * 1024 * 1024) {
-                  message.error(t('librarySettings.fileSizeExceeded', { size: (totalSize / 1024 / 1024).toFixed(1) }));
+                const latest = newFileList.slice(-1);
+                const fileSize = latest[0]?.originFileObj?.size || latest[0]?.size || 0;
+                if (fileSize > 100 * 1024 * 1024) {
+                  message.error(t('librarySettings.fileSizeExceeded', { size: (fileSize / 1024 / 1024).toFixed(1) }));
                   return;
                 }
-                setEditFileList(newFileList);
-                if (newFileList.length > 0) handlePiiScan(newFileList, setEditFileList);
+                setEditFileList(latest);
+                if (latest.length > 0) handlePiiScan(latest, setEditFileList);
               }}
               beforeUpload={() => false}
             >
@@ -752,21 +786,57 @@ const LibrarySettings = () => {
       <Modal
         title={t('librarySettings.permissionTitle', { name: permModal?.name })}
         open={!!permModal}
-        onCancel={() => setPermModal(null)}
-        onOk={handlePermSave}
+        onCancel={() => { setPermModal(null); setPermSearch(''); }}
+        onOk={() => { handlePermSave(); setPermSearch(''); }}
         okText={t('common.save')}
         cancelText={t('common.cancel')}
         okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
       >
         <p style={{ marginBottom: 12, color: '#666' }}>{t('librarySettings.permissionHint')}</p>
-        <Select
-          mode="multiple"
-          style={{ width: '100%' }}
+        <Input
+          prefix={<SearchOutlined style={{ color: '#bbb' }} />}
           placeholder={t('librarySettings.selectUsers')}
-          value={permUsers}
-          onChange={setPermUsers}
-          options={userList.map((u) => ({ value: u.id, label: u.name + ' (' + (t('departments.' + u.department) || u.department) + ')' }))}
+          value={permSearch}
+          onChange={(e) => setPermSearch(e.target.value)}
+          allowClear
+          style={{ marginBottom: 8 }}
         />
+        <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 6, padding: '4px 0' }}>
+          {userListLoading ? (
+            <div style={{ textAlign: 'center', padding: '20px 0' }}><Spin size="small" /></div>
+          ) : realUserList
+            .filter((u) => u.role !== 'super_admin' && u.role !== 'platform_admin')
+            .filter((u) => {
+              if (!permSearch.trim()) return true;
+              const kw = permSearch.toLowerCase();
+              return u.name?.toLowerCase().includes(kw) || u.email?.toLowerCase().includes(kw) || u.department?.toLowerCase().includes(kw);
+            })
+            .map((u) => (
+              <label
+                key={u.email}
+                style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', borderRadius: 4, userSelect: 'none' }}
+              >
+                <Checkbox
+                  checked={permUsers.includes(u.email)}
+                  style={{ marginRight: 10 }}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setPermUsers((prev) =>
+                      checked ? [...prev, u.email] : prev.filter((email) => email !== u.email)
+                    );
+                  }}
+                />
+                <span style={{ flex: 1 }}>{u.name || u.email}</span>
+                <span style={{ fontSize: 12, color: '#999', marginRight: 8 }}>{u.email}</span>
+                <Tag style={{ fontSize: 11 }}>{u.department || ''}</Tag>
+              </label>
+            ))}
+        </div>
+        {permUsers.length > 0 && (
+          <div style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
+            已選擇 {permUsers.length} 人
+          </div>
+        )}
       </Modal>
 
       {/* Cover Image Modal */}

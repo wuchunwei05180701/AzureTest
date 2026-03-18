@@ -10,15 +10,12 @@ import {
   Popconfirm,
   message,
   Space,
-  Badge,
   Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   UserSwitchOutlined,
-  StopOutlined,
-  CheckCircleOutlined,
   TeamOutlined,
   SearchOutlined,
   LockOutlined,
@@ -215,8 +212,7 @@ const UserManagement = () => {
   };
 
   // ===== 停用/啟用 =====
-  const handleToggleStatus = async (email, currentStatus) => {
-    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  const handleToggleStatus = async (email, newStatus) => {
     try {
       await userAPI.updateStatus(email, newStatus);
       message.success(newStatus === 'active' ? t('userManagement.accountEnabled') : t('userManagement.accountDisabled'));
@@ -262,7 +258,8 @@ const UserManagement = () => {
 
   // ===== 前端篩選（作為 API 篩選的補充）=====
   const filteredUsers = users.filter((u) => {
-    const deptLabel = t(`departments.${u.department}`) || u.department;
+    const translated = t(`departments.${u.department}`);
+    const deptLabel = (translated && !translated.startsWith('departments.')) ? translated : (u.department || '');
     const matchSearch =
       !searchText ||
       u.name.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -328,7 +325,10 @@ const UserManagement = () => {
       dataIndex: 'department',
       key: 'department',
       width: 120,
-      render: (dept) => t(`departments.${dept}`) || dept,
+      render: (dept) => {
+        const translated = t(`departments.${dept}`);
+        return (translated && !translated.startsWith('departments.')) ? translated : (dept || '');
+      },
     },
     {
       title: t('userManagement.country'),
@@ -376,18 +376,35 @@ const UserManagement = () => {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
-      width: 100,
-      render: (status) =>
-        status === 'active' ? (
-          <Badge status="success" text={<Tag color="green">{t('common.active')}</Tag>} />
-        ) : (
-          <Badge status="error" text={<Tag color="red">{t('common.inactive')}</Tag>} />
-        ),
+      width: 130,
+      render: (status, record) => {
+        const operable = canOperate(record);
+        if (!operable) {
+          return status === 'active' ? (
+            <Tag color="green">{t('common.active')}</Tag>
+          ) : (
+            <Tag color="red">{t('common.inactive')}</Tag>
+          );
+        }
+        return (
+          <Select
+            value={status}
+            size="small"
+            style={{ width: 110 }}
+            onChange={(val) => handleToggleStatus(record.email, val)}
+            options={[
+              { value: 'active', label: <span style={{ color: '#52c41a' }}>● {t('common.active')}</span> },
+              { value: 'inactive', label: <span style={{ color: '#ff4d4f' }}>● {t('common.inactive')}</span> },
+            ]}
+            popupMatchSelectWidth={false}
+          />
+        );
+      },
     },
     {
       title: t('common.actions'),
       key: 'actions',
-      width: 280,
+      width: 160,
       render: (_, record) => {
         const operable = canOperate(record);
         return (
@@ -403,43 +420,6 @@ const UserManagement = () => {
                 {t('common.edit')}
               </Button>
             </Tooltip>
-            {operable ? (
-              <Popconfirm
-                title={
-                  record.status === 'active'
-                    ? t('userManagement.confirmDisable')
-                    : t('userManagement.confirmEnable')
-                }
-                onConfirm={() => handleToggleStatus(record.email, record.status)}
-                okText={t('common.confirm')}
-                cancelText={t('common.cancel')}
-              >
-                {record.status === 'active' ? (
-                  <Button type="text" danger icon={<StopOutlined />}>
-                    {t('userManagement.disableAccount')}
-                  </Button>
-                ) : (
-                  <Button
-                    type="text"
-                    icon={<CheckCircleOutlined />}
-                    style={{ color: 'var(--primary-color)' }}
-                  >
-                    {t('userManagement.enableAccount')}
-                  </Button>
-                )}
-              </Popconfirm>
-            ) : (
-              <Tooltip title={t('common.insufficientPermission')}>
-                <Button
-                  type="text"
-                  icon={record.status === 'active' ? <StopOutlined /> : <CheckCircleOutlined />}
-                  disabled
-                  style={{ color: '#ccc' }}
-                >
-                  {record.status === 'active' ? t('userManagement.disableAccount') : t('userManagement.enableAccount')}
-                </Button>
-              </Tooltip>
-            )}
             {operable ? (
               <Popconfirm
                 title={t('userManagement.confirmDelete')}

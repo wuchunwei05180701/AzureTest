@@ -40,32 +40,33 @@ const TopBar = ({ onToggleSidebar }) => {
       <div className="topbar-right">
         {user && (
           <>
-            {/* 國家顯示區域 */}
-            {isSuperAdmin ? (
-              <Select
-                value={selectedCountry}
-                onChange={setSelectedCountry}
-                placeholder={t('topbar.selectCountry')}
-                size="small"
-                style={{ width: 150, marginRight: 8 }}
-                options={countries.map((c) => ({ value: c.code, label: `${t(`countries.${c.code}`) || c.name} (${c.code})` }))}
-                className="topbar-country-select"
-              />
-            ) : (
-              <Tag color="blue" className="topbar-country-tag">
-                <GlobalOutlined style={{ marginRight: 4 }} />
-                {countryName}
-              </Tag>
-            )}
-
             <div className="topbar-user-info">
               <span className="topbar-user-name">{user.name || user.email}</span>
-              <Tag
-                color={roleColor}
-                style={{ marginLeft: 4, fontSize: 11, lineHeight: '18px' }}
-              >
-                {roleLabel}
-              </Tag>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                {/* 國家顯示區域 */}
+                {isSuperAdmin ? (
+                  <Select
+                    value={selectedCountry}
+                    onChange={setSelectedCountry}
+                    placeholder={t('topbar.selectCountry')}
+                    size="small"
+                    style={{ width: 130 }}
+                    options={countries.map((c) => ({ value: c.code, label: `${t(`countries.${c.code}`) || c.name} (${c.code})` }))}
+                    className="topbar-country-select"
+                  />
+                ) : (
+                  <Tag color="blue" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                    <GlobalOutlined style={{ marginRight: 4 }} />
+                    {countryName}
+                  </Tag>
+                )}
+                <Tag
+                  color={roleColor}
+                  style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}
+                >
+                  {roleLabel}
+                </Tag>
+              </div>
             </div>
             <Avatar size={36} icon={<UserOutlined />} className="topbar-avatar" />
             <Tooltip title={t('topbar.logout')}>

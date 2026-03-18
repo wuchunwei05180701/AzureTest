@@ -871,9 +871,24 @@ async def update_doc_auth(
     if len(body.authorized_users) > 50:
         raise HTTPException(status_code=400, detail="授權使用者不可超過 50 人")
 
+    # super_admin / platform_admin 本身有 access_all_docs 權限，不需要加入 authorized_users
+    # 過濾掉這兩個角色的使用者（需從 DB 查詢角色）
+    from core.database import GlobalSessionLocal
+    from models.global_models import UserRouteMap
+    from sqlalchemy import select as sa_select
+    filtered_users = list(body.authorized_users)
+    if filtered_users:
+        async with GlobalSessionLocal() as gs:
+            result = await gs.execute(
+                sa_select(UserRouteMap.email, UserRouteMap.role)
+                .where(UserRouteMap.email.in_(filtered_users))
+            )
+            admin_emails = {row.email for row in result if row.role in ("super_admin", "platform_admin")}
+        filtered_users = [e for e in filtered_users if e not in admin_emails]
+
     auth_data = {
         "authorized_roles": body.authorized_roles,
-        "authorized_users": body.authorized_users,
+        "authorized_users": filtered_users,
         "exception_list": body.exception_list,
     }
 
