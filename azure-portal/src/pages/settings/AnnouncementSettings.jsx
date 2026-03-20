@@ -252,6 +252,16 @@ const AnnouncementSettings = () => {
   };
 
   const handleSave = async () => {
+    // 如果 PII 掃描還在進行中，阻止儲存
+    if (piiScanning) {
+      message.warning(t('pii.scanningFiles'));
+      return;
+    }
+    // 如果 PII 掃描未通過（偵測到敏感資訊），阻止儲存
+    if (!piiPassed && fileList.length > 0) {
+      message.error(t('pii.detectedTitle'));
+      return;
+    }
     try {
       const values = await form.validateFields();
 
@@ -453,9 +463,13 @@ const AnnouncementSettings = () => {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSave}
-        okText={t('common.save')}
+        okText={piiScanning ? t('pii.scanningFiles') : t('common.save')}
         cancelText={t('common.cancel')}
-        okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
+        okButtonProps={{
+          style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' },
+          disabled: piiScanning || (!piiPassed && fileList.length > 0),
+          loading: piiScanning,
+        }}
       >
         <Form form={form} layout="vertical">
           {/* super_admin 選擇目標國家 */}

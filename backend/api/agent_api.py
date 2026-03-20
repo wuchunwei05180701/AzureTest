@@ -1,5 +1,5 @@
 """
-Agent API：管理 Agent 列表、上架/下架、ACL 授權
+Agent API：列表/上架/下架/ACL 管理
 """
 import logging
 from typing import List
@@ -7,9 +7,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, update
 
-from config import settings
 from core.database import GlobalSessionLocal
-from core.permissions import require_permission
+from core.permissions import has_permission, require_permission
 from core.security import get_current_user_payload
 from models.global_models import AgentACL, AgentMaster
 from models.schemas import AgentACLInfo, AgentACLUpdate, AgentPublishUpdate, AgentResponse, MessageResponse
@@ -36,19 +35,15 @@ async def list_agents(payload: dict = Depends(get_current_user_payload)):
         )
         all_agents = result.scalars().all()
 
-        # 一次批次查詢所有 ACL，建立 agent_id → allowed_users 的 map
-        # 避免在 for loop 中做 N+1 查詢導致 async cursor 狀態錯亂
-        acl_result = await session.execute(select(AgentACL))
-        acl_map = {
-            str(acl.agent_id): acl.allowed_users
-            for acl in acl_result.scalars().all()
-        }
-
-        # 用 map 對應每個 agent 的 ACL，確保資料不會錯位
+        # 所有角色都需要檢查 ACL（包括 root / admin）
         authorized_agents = []
         for agent in all_agents:
-            acl_data = acl_map.get(str(agent.agent_id))
-            if acl_data and _check_acl(acl_data, email, role):
+            acl_result = await session.execute(
+                select(AgentACL).where(AgentACL.agent_id == agent.agent_id)
+            )
+            acl = acl_result.scalar_one_or_none()
+
+            if acl and _check_acl(acl.allowed_users, email, role):
                 authorized_agents.append(agent)
 
         return [_agent_to_response(a) for a in authorized_agents]
@@ -182,21 +177,6 @@ async def update_agent_acl(
 
 # === 內部工具函式 ===
 
-def _check_acl(allowed_users: dict, email: str, role: str) -> bool:
-    """檢查使用者是否有權限存取 Agent"""
-    authorized_roles = allowed_users.get("authorized_roles", [])
-    authorized_users = allowed_users.get("authorized_users", [])
-    exception_list = allowed_users.get("exception_list", [])
-
-    if email in exception_list:
-        return False
-    if email in authorized_users:
-        return True
-    if role in authorized_roles:
-        return True
-    return False
-
-
 def _agent_to_response(agent: AgentMaster, acl_data: dict = None) -> AgentResponse:
     acl_info = None
     if acl_data:
@@ -211,9 +191,33 @@ def _agent_to_response(agent: AgentMaster, acl_data: dict = None) -> AgentRespon
         name=agent.name,
         agent_config_json=agent.agent_config_json or {},
         icon=agent.icon,
-        icon_type=None,
         color=agent.color,
         description=agent.description,
         is_published=agent.is_published,
         acl=acl_info,
     )
+
+
+def _check_acl(acl_data: dict, email: str, role: str) -> bool:
+    """
+    檢查使用者是否通過 ACL 授權
+    1. exception_list 排除
+    2. authorized_users 包含
+    3. authorized_roles 包含
+    """
+    if not acl_data:
+        return False
+
+    exception_list = acl_data.get("exception_list", [])
+    if email in exception_list:
+        return False
+
+    authorized_users = acl_data.get("authorized_users", [])
+    if email in authorized_users:
+        return True
+
+    authorized_roles = acl_data.get("authorized_roles", [])
+    if role in authorized_roles:
+        return True
+
+    return False

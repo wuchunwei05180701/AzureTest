@@ -80,7 +80,7 @@ async def request_otp(body: OTPRequest, request: Request):
     finally:
         await local_session.close()
 
-    # 4. 寄送 OTP（SMTP 未設定時回傳 OTP 供直接登入）
+    # 4. 寄送 OTP
     dev_otp = None
     if settings.APP_ENV == "development":
         dev_otp = otp_code  # 開發模式下回傳給前端，方便測試
@@ -163,9 +163,6 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
             await local_session.commit()
             await _log_login(local_session, email, "failed", request)
             remaining = settings.OTP_MAX_RETRIES - otp_record.retries
-            await _log_audit(country, email, AuditAction.LOGIN_FAILED, email, request,
-                             result="failure",
-                             error_message=f"OTP 驗證失敗，剩餘 {remaining} 次")
             raise HTTPException(
                 status_code=401,
                 detail=f"OTP 驗證失敗，剩餘 {remaining} 次嘗試機會"
@@ -253,11 +250,11 @@ async def get_current_user(payload: dict = Depends(get_current_user_payload)):
 
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(request: Request, payload: dict = Depends(get_current_user_payload)):
+async def logout(payload: dict = Depends(get_current_user_payload)):
     """登出（前端清除 token，後端記錄稽核）"""
     email = payload["sub"]
     country = payload.get("country", "TW")
-    await _log_audit(country, email, AuditAction.LOGOUT, email, request)
+    await _log_audit(country, email, AuditAction.LOGOUT, email)
     return MessageResponse(message="已登出")
 
 

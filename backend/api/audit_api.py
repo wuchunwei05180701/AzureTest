@@ -19,7 +19,7 @@ from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
 from core.database import GlobalSessionLocal
-from core.permissions import require_permission
+from core.permissions import require_any_permission
 from core.security import get_current_user_payload
 from models.global_models import GlobalAuditLog
 from models.schemas import MessageResponse
@@ -80,7 +80,7 @@ async def list_audit_logs(
     target: Optional[str] = Query(None, description="操作對象（模糊搜尋）"),
     date_from: Optional[str] = Query(None, description="開始時間（ISO 8601，例如 2026-03-01T00:00:00Z）"),
     date_to: Optional[str] = Query(None, description="結束時間（ISO 8601）"),
-    payload: dict = Depends(require_permission("cross_country_logs")),
+    payload: dict = Depends(require_any_permission("manage_users", "cross_country_logs")),
 ):
     """
     查詢稽核日誌（分頁）
@@ -173,7 +173,7 @@ async def list_audit_logs(
 
 @router.get("/actions")
 async def list_audit_actions(
-    payload: dict = Depends(require_permission("cross_country_logs")),
+    payload: dict = Depends(require_any_permission("manage_users", "cross_country_logs")),
 ):
     """
     取得所有已記錄的 action 類型列表（供前端篩選下拉選單用）
@@ -206,12 +206,9 @@ async def list_audit_actions(
         "library.delete":       "刪除文件",
         "library.update":       "更新文件",
         "library.auth_update":  "更新文件權限",
-        "library.view":         "點擊文件",
-        "library.preview":      "預覽文件",
         "announcement.create":  "新增公告",
         "announcement.update":  "更新公告",
         "announcement.delete":  "刪除公告",
-        "chat.send":            "發送聊天訊息",
         "chat.session_delete":  "刪除對話",
         "pii.detected_chat":    "聊天偵測到個資",
         "pii.blocked_upload":   "上傳因個資被阻擋",
@@ -235,7 +232,7 @@ async def export_audit_logs(
     target: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    payload: dict = Depends(require_permission("cross_country_logs")),
+    payload: dict = Depends(require_any_permission("manage_users", "cross_country_logs")),
 ):
     """
     匯出稽核日誌為 CSV（最多 5000 筆）
@@ -286,9 +283,9 @@ async def export_audit_logs(
         )
         logs = logs_result.scalars().all()
 
-    # 產生 CSV（使用 utf-8-sig 編碼，讓 Excel 正確識別中文）
-    str_buf = io.StringIO()
-    writer = csv.writer(str_buf)
+    # 產生 CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
 
     # 標題列
     writer.writerow([
@@ -307,17 +304,14 @@ async def export_audit_logs(
             log.ip_address or "",
             log.error_message or "",
             str(log.details) if log.details else "",
-            log.response_time_ms if log.response_time_ms is not None else "",
+            log.response_time_ms or "",
         ])
 
-    # 將字串以 utf-8-sig 編碼為 bytes（自動加入 BOM，Excel 才能正確顯示中文）
-    csv_bytes = str_buf.getvalue().encode("utf-8-sig")
-    output = io.BytesIO(csv_bytes)
-
+    output.seek(0)
     filename = f"audit_logs_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
 
     return StreamingResponse(
-        output,
+        iter([output.getvalue()]),
         media_type="text/csv; charset=utf-8-sig",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

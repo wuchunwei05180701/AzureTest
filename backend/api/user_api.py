@@ -1,12 +1,12 @@
 """
 使用者管理 API：CRUD + 角色指派 + 停用/啟用
-國家隔離：非 super_admin 只能看到/操作自己國家的使用者
+國家隔離：非 root 只能看到/操作自己國家的使用者
 """
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, update, delete, func
 
 from config import settings
@@ -27,6 +27,7 @@ from models.schemas import (
     UserStatusUpdate,
     UserUpdate,
 )
+from utils.audit_logger import audit_log, AuditAction
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,21 +36,21 @@ router = APIRouter()
 def _resolve_country_filter(payload: dict, query_country: Optional[str] = None) -> Optional[str]:
     """
     解析國家篩選條件：
-    - super_admin：可指定任意國家，或不指定（看全部）
+    - root：可指定任意國家，或不指定（看全部）
     - 其他角色：強制只看自己國家
     """
     user_country = payload.get("country", "TW")
     role = payload.get("role", "user")
 
-    if role == "super_admin":
-        # super_admin 可以指定國家，也可以不指定（看全部）
+    if role == "root":
+        # root 可以指定國家，也可以不指定（看全部）
         if query_country:
             if query_country not in settings.LOCAL_DB_CONFIG:
                 raise HTTPException(status_code=400, detail=f"國家 [{query_country}] 不存在")
             return query_country
         return None  # None = 不篩選，看全部
     else:
-        # 非 super_admin 強制只看自己國家
+        # 非 root 強制只看自己國家
         return user_country
 
 
@@ -77,7 +78,7 @@ async def list_users(
     async with GlobalSessionLocal() as session:
         query = select(UserRouteMap)
 
-        # 國家隔離：非 super_admin 強制篩選自己國家
+        # 國家隔離：非 root 強制篩選自己國家
         if country_filter:
             query = query.where(UserRouteMap.country_code == country_filter)
 
@@ -113,10 +114,12 @@ async def list_users(
 @router.post("", response_model=MessageResponse)
 async def create_user(
     body: UserCreate,
+    request: Request,
     payload: dict = Depends(require_permission("manage_users")),
 ):
     """新增使用者"""
     email = body.email.lower()
+    operator_email = payload.get("sub", "")
     operator_role = payload.get("role", "user")
     operator_country = payload.get("country", "TW")
 
@@ -126,8 +129,8 @@ async def create_user(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"無效的角色: {body.role}")
 
-    # 國家隔離：非 super_admin 只能建立自己國家的使用者
-    if operator_role != "super_admin" and body.country != operator_country:
+    # 國家隔離：非 root 只能建立自己國家的使用者
+    if operator_role != "root" and body.country != operator_country:
         raise HTTPException(
             status_code=403,
             detail=f"權限不足：只能建立 {operator_country} 國家的使用者"
@@ -164,6 +167,14 @@ async def create_user(
         await session.commit()
 
     logger.info(f"使用者已建立: {email} (角色: {body.role}, 國家: {body.country})")
+    audit_log(
+        action=AuditAction.USER_CREATE,
+        operator_email=operator_email,
+        country_code=operator_country,
+        target=email,
+        details={"role": body.role, "country": body.country, "name": body.name},
+        request=request,
+    )
     return MessageResponse(message="使用者已建立", detail=email)
 
 
@@ -171,6 +182,7 @@ async def create_user(
 async def update_user(
     email: str,
     body: UserUpdate,
+    request: Request,
     payload: dict = Depends(require_permission("manage_users")),
 ):
     """編輯使用者"""
@@ -187,8 +199,8 @@ async def update_user(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 super_admin 不能編輯其他國家的使用者
-        if operator_role != "super_admin" and target.country_code != operator_country:
+        # 國家隔離：非 root 不能編輯其他國家的使用者
+        if operator_role != "root" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法編輯其他國家的使用者")
 
         # 階層檢查：不能編輯自己、不能編輯等級 >= 自己的使用者
@@ -199,6 +211,7 @@ async def update_user(
             operator_email=operator_email,
             target_email=email,
         )
+        old_role = target.role
 
     update_data = {}
     if body.name is not None:
@@ -227,6 +240,14 @@ async def update_user(
             raise HTTPException(status_code=404, detail="使用者不存在")
         await session.commit()
 
+    audit_log(
+        action=AuditAction.USER_UPDATE,
+        operator_email=operator_email,
+        country_code=operator_country,
+        target=email.lower(),
+        details={k: v for k, v in update_data.items() if k != "updated_at"},
+        request=request,
+    )
     return MessageResponse(message="使用者已更新", detail=email)
 
 
@@ -234,6 +255,7 @@ async def update_user(
 async def update_user_status(
     email: str,
     body: UserStatusUpdate,
+    request: Request,
     payload: dict = Depends(require_permission("manage_users")),
 ):
     """停用/啟用帳號"""
@@ -250,8 +272,8 @@ async def update_user_status(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 super_admin 不能操作其他國家的使用者
-        if operator_role != "super_admin" and target.country_code != operator_country:
+        # 國家隔離：非 root 不能操作其他國家的使用者
+        if operator_role != "root" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法操作其他國家的使用者")
 
         # 階層檢查：不能停用自己、不能停用等級 >= 自己的使用者
@@ -261,6 +283,7 @@ async def update_user_status(
             operator_email=operator_email,
             target_email=email,
         )
+        old_status = target.status
 
         # 執行更新
         await session.execute(
@@ -270,14 +293,23 @@ async def update_user_status(
         )
         await session.commit()
 
-    action = "啟用" if body.status == "active" else "停用"
-    return MessageResponse(message=f"帳號已{action}", detail=email)
+    action_label = "啟用" if body.status == "active" else "停用"
+    audit_log(
+        action=AuditAction.USER_STATUS_CHANGE,
+        operator_email=operator_email,
+        country_code=operator_country,
+        target=email.lower(),
+        details={"status_from": old_status, "status_to": body.status},
+        request=request,
+    )
+    return MessageResponse(message=f"帳號已{action_label}", detail=email)
 
 
 @router.patch("/{email}/role", response_model=MessageResponse)
 async def update_user_role(
     email: str,
     body: UserRoleUpdate,
+    request: Request,
     payload: dict = Depends(require_permission("manage_users")),
 ):
     """角色指派"""
@@ -299,8 +331,8 @@ async def update_user_role(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 super_admin 不能操作其他國家的使用者
-        if operator_role != "super_admin" and target.country_code != operator_country:
+        # 國家隔離：非 root 不能操作其他國家的使用者
+        if operator_role != "root" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法操作其他國家的使用者")
 
         # 階層檢查：不能改自己、不能改等級 >= 自己的人、不能指派 >= 自己的角色
@@ -311,6 +343,7 @@ async def update_user_role(
             operator_email=operator_email,
             target_email=email,
         )
+        old_role = target.role
 
         # 執行更新
         await session.execute(
@@ -320,12 +353,21 @@ async def update_user_role(
         )
         await session.commit()
 
+    audit_log(
+        action=AuditAction.USER_ROLE_CHANGE,
+        operator_email=operator_email,
+        country_code=operator_country,
+        target=email.lower(),
+        details={"role_from": old_role, "role_to": body.role},
+        request=request,
+    )
     return MessageResponse(message="角色已更新", detail=f"{email} → {body.role}")
 
 
 @router.delete("/{email}", response_model=MessageResponse)
 async def delete_user(
     email: str,
+    request: Request,
     payload: dict = Depends(require_permission("manage_users")),
 ):
     """永久刪除使用者（硬刪除）"""
@@ -344,8 +386,8 @@ async def delete_user(
         if not target:
             raise HTTPException(status_code=404, detail="使用者不存在")
 
-        # 國家隔離：非 super_admin 不能刪除其他國家的使用者
-        if operator_role != "super_admin" and target.country_code != operator_country:
+        # 國家隔離：非 root 不能刪除其他國家的使用者
+        if operator_role != "root" and target.country_code != operator_country:
             raise HTTPException(status_code=403, detail="權限不足：無法刪除其他國家的使用者")
 
         # 階層檢查：不能刪自己、不能刪等級 >= 自己的使用者
@@ -357,6 +399,7 @@ async def delete_user(
         )
 
         target_country = target.country_code
+        target_role = target.role
 
         # 從 Global DB 硬刪除
         await session.execute(
@@ -380,4 +423,12 @@ async def delete_user(
         logger.warning(f"清理 OTP 紀錄失敗（非致命）: {e}")
 
     logger.info(f"使用者已永久刪除: {email} (操作者: {operator_email})")
+    audit_log(
+        action=AuditAction.USER_DELETE,
+        operator_email=operator_email,
+        country_code=operator_country,
+        target=email,
+        details={"deleted_role": target_role, "deleted_country": target_country},
+        request=request,
+    )
     return MessageResponse(message="使用者已永久刪除", detail=email)

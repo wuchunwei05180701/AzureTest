@@ -8,13 +8,11 @@ export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token);
 export const removeToken = () => localStorage.removeItem(TOKEN_KEY);
 
 // ===== Axios Instance =====
-// VITE_API_BASE_URL: 部署時指向 backend URL，本地開發用 proxy
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 // 偵測是否在 /AzureTest/ 路徑下（Nginx 反向代理）
 export const BASE_PREFIX = window.location.pathname.startsWith('/AzureTest') ? '/AzureTest' : '';
 
 const api = axios.create({
-  baseURL: `${API_BASE}${BASE_PREFIX}/api`,
+  baseURL: `${BASE_PREFIX}/api`,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -38,15 +36,10 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // 排除登入相關 API（verify-otp 的 401 是正常業務邏輯：OTP 驗證失敗）
-      const url = error.config?.url || '';
-      const isAuthLoginAPI = url.includes('/auth/verify-otp') || url.includes('/auth/request-otp');
-      if (!isAuthLoginAPI) {
-        removeToken();
-        // 避免在 login 頁面重複跳轉
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/AzureTest/login';
-        }
+      removeToken();
+      // 避免在 login 頁面重複跳轉
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/AzureTest/login';
       }
     }
     return Promise.reject(error);
@@ -310,20 +303,13 @@ export const libraryAPI = {
    * @param {string} docId - 文件 ID
    * @param {string} [country] - 國家代碼（僅 super_admin 可跨國）
    * @param {string} [filename] - 指定預覽的檔案名稱（多檔案時使用）
-   * @param {boolean} [record=true] - 是否記錄稽核日誌（縮圖載入時傳 false）
    */
-  preview: (docId, country, filename, record = true) =>
+  preview: (docId, country, filename) =>
     api.get(`/library/${docId}/preview`, {
       responseType: 'blob',
-      headers: {
-        // 防止瀏覽器快取，確保每次都發送請求到後端（record=true 時需要記錄稽核日誌）
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      },
       params: {
         ...(country ? { country } : {}),
         ...(filename ? { filename } : {}),
-        ...(record === false ? { record: false } : {}),
       },
     }),
 
@@ -386,25 +372,6 @@ export const libraryAPI = {
    */
   updateCatalog: (catalogId, data, country) =>
     api.put(`/library/catalogs/${catalogId}`, data, { params: country ? { country } : {} }),
-
-  /** 記錄文件點擊（開啟文件 Modal 時呼叫）
-   * @param {string} docId - 文件 ID
-   * @param {string} [country] - 國家代碼（僅 super_admin 可跨國）
-   */
-  recordView: (docId, country) =>
-    api.post(`/library/${docId}/view`, {}, { params: country ? { country } : {} }),
-
-  /** 取得圖書館統計資料
-   * @param {object} params - { country?, date_from?, date_to? }
-   */
-  getStats: (params = {}) =>
-    api.get('/library/stats/summary', { params }),
-
-  /** 取得指定日期的文件閱覽/下載明細
-   * @param {object} params - { date, country? }
-   */
-  getDailyDetail: (params = {}) =>
-    api.get('/library/stats/daily-detail', { params }),
 };
 
 // ===== 對話 API =====
@@ -412,12 +379,6 @@ export const chatAPI = {
   /** 非 streaming 發送訊息 */
   send: (data) =>
     api.post('/chat', data),
-
-  /** 取得 Agent 使用統計摘要（需要 manage_agent_permissions 權限）
-   * @param {object} params - { country?, date_from?, date_to? }
-   */
-  getStats: (params = {}) =>
-    api.get('/chat/stats/summary', { params }),
 
   /** [Deprecated] 取得對話歷史列表（舊版，請改用 sessions） */
   history: () =>
@@ -466,7 +427,7 @@ export const chatAPI = {
           delete payload.images;
         }
 
-        const response = await fetch(`${API_BASE}${BASE_PREFIX}/api/chat/stream`, {
+        const response = await fetch(`${BASE_PREFIX}/api/chat/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

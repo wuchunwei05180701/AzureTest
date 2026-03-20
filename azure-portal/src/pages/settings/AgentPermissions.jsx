@@ -27,10 +27,8 @@ import '../Settings.css';
 
 // 所有可授權的角色（與後端 permissions.py 的 Role enum 一致）
 const ALL_ROLES = [
-  { value: 'super_admin', label: '台灣最高管理者' },
-  { value: 'platform_admin', label: '平台管理者' },
-  { value: 'user_manager', label: '用戶管理者' },
-  { value: 'library_manager', label: '圖書館管理者' },
+  { value: 'root', label: '最高管理者' },
+  { value: 'admin', label: '平台管理者' },
   { value: 'user', label: '一般使用者' },
 ];
 

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Table,
   Button,
@@ -27,13 +26,52 @@ import dayjs from 'dayjs';
 import { auditAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCountry } from '../../contexts/CountryContext';
-import { useLanguage } from '../../contexts/LanguageContext';
 import '../Settings.css';
 import './AuditLogs.css';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
 const { Text } = Typography;
+
+// 操作類型中文標籤
+const ACTION_LABELS = {
+  'auth.otp_request':     '申請 OTP',
+  'auth.login_success':   '登入成功',
+  'auth.login_failed':    '登入失敗',
+  'auth.account_locked':  '帳號鎖定',
+  'auth.logout':          '登出',
+  'user.create':          '新增使用者',
+  'user.update':          '更新使用者',
+  'user.role_change':     '變更角色',
+  'user.status_change':   '變更狀態',
+  'user.delete':          '刪除使用者',
+  'agent.publish':        '上架 Agent',
+  'agent.unpublish':      '下架 Agent',
+  'agent.acl_update':     '更新 Agent 權限',
+  'library.upload':       '上傳文件',
+  'library.download':     '下載文件',
+  'library.delete':       '刪除文件',
+  'library.update':       '更新文件',
+  'library.auth_update':  '更新文件權限',
+  'announcement.create':  '新增公告',
+  'announcement.update':  '更新公告',
+  'announcement.delete':  '刪除公告',
+  'chat.session_delete':  '刪除對話',
+  'pii.detected_chat':    '聊天偵測到個資',
+  'pii.blocked_upload':   '上傳因個資被阻擋',
+  'pii.blocked_chat':     '聊天因個資被阻擋',
+};
+
+// 操作類別（用於篩選下拉）
+const ACTION_CATEGORIES = [
+  { value: 'auth',         label: '認證' },
+  { value: 'user',         label: '使用者管理' },
+  { value: 'agent',        label: 'Agent 管理' },
+  { value: 'library',      label: '圖書館' },
+  { value: 'announcement', label: '公告' },
+  { value: 'chat',         label: '聊天' },
+  { value: 'pii',          label: '個資偵測' },
+];
 
 // 操作類型對應的 Tag 顏色
 const ACTION_COLORS = {
@@ -52,55 +90,10 @@ const getActionColor = (action) => {
 };
 
 const AuditLogs = () => {
-  const { user: currentUser, hasPermission } = useAuth();
+  const { user: currentUser } = useAuth();
   const { countries: countryList } = useCountry();
-  const { t } = useLanguage();
-  const navigate = useNavigate();
 
   const isRoot = currentUser?.role === 'root';
-
-  // 操作類型中文標籤（動態使用 t()）
-  const ACTION_LABELS = {
-    'auth.otp_request':     t('auditLogs.actionOtpRequest'),
-    'auth.login_success':   t('auditLogs.actionLoginSuccess'),
-    'auth.login_failed':    t('auditLogs.actionLoginFailed'),
-    'auth.account_locked':  t('auditLogs.actionAccountLocked'),
-    'auth.logout':          t('auditLogs.actionLogout'),
-    'user.create':          t('auditLogs.actionUserCreate'),
-    'user.update':          t('auditLogs.actionUserUpdate'),
-    'user.role_change':     t('auditLogs.actionUserRoleChange'),
-    'user.status_change':   t('auditLogs.actionUserStatusChange'),
-    'user.delete':          t('auditLogs.actionUserDelete'),
-    'agent.publish':        t('auditLogs.actionAgentPublish'),
-    'agent.unpublish':      t('auditLogs.actionAgentUnpublish'),
-    'agent.acl_update':     t('auditLogs.actionAgentAclUpdate'),
-    'library.upload':       t('auditLogs.actionLibraryUpload'),
-    'library.download':     t('auditLogs.actionLibraryDownload'),
-    'library.delete':       t('auditLogs.actionLibraryDelete'),
-    'library.update':       t('auditLogs.actionLibraryUpdate'),
-    'library.auth_update':  t('auditLogs.actionLibraryAuthUpdate'),
-    'library.view':         t('auditLogs.actionLibraryView'),
-    'library.preview':      t('auditLogs.actionLibraryPreview'),
-    'announcement.create':  t('auditLogs.actionAnnouncementCreate'),
-    'announcement.update':  t('auditLogs.actionAnnouncementUpdate'),
-    'announcement.delete':  t('auditLogs.actionAnnouncementDelete'),
-    'chat.send':            t('auditLogs.actionChatSend'),
-    'chat.session_delete':  t('auditLogs.actionChatSessionDelete'),
-    'pii.detected_chat':    t('auditLogs.actionPiiDetectedChat'),
-    'pii.blocked_upload':   t('auditLogs.actionPiiBlockedUpload'),
-    'pii.blocked_chat':     t('auditLogs.actionPiiBlockedChat'),
-  };
-
-  // 操作類別（用於篩選下拉）
-  const ACTION_CATEGORIES = [
-    { value: 'auth',         label: t('auditLogs.categoryAuth') },
-    { value: 'user',         label: t('auditLogs.categoryUser') },
-    { value: 'agent',        label: t('auditLogs.categoryAgent') },
-    { value: 'library',      label: t('auditLogs.categoryLibrary') },
-    { value: 'announcement', label: t('auditLogs.categoryAnnouncement') },
-    { value: 'chat',         label: t('auditLogs.categoryChat') },
-    { value: 'pii',          label: t('auditLogs.categoryPii') },
-  ];
 
   // 資料狀態
   const [logs, setLogs] = useState([]);
@@ -147,7 +140,7 @@ const AuditLogs = () => {
       setTotal(res.data.total || 0);
     } catch (err) {
       console.error('取得稽核日誌失敗:', err);
-      message.error(t('auditLogs.fetchFailed'));
+      message.error('取得稽核日誌失敗');
     } finally {
       setLoading(false);
     }
@@ -185,10 +178,10 @@ const AuditLogs = () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-      message.success(t('auditLogs.exportSuccess'));
+      message.success('CSV 匯出成功');
     } catch (err) {
       console.error('匯出失敗:', err);
-      message.error(t('auditLogs.exportFailed'));
+      message.error('匯出失敗');
     } finally {
       setExporting(false);
     }
@@ -209,14 +202,14 @@ const AuditLogs = () => {
   // 表格欄位定義
   const columns = [
     {
-      title: t('auditLogs.colTime'),
+      title: '時間',
       dataIndex: 'timestamp',
       key: 'timestamp',
       width: 160,
       render: (ts) => ts ? dayjs(ts).format('YYYY-MM-DD HH:mm:ss') : '-',
     },
     {
-      title: t('auditLogs.colUser'),
+      title: '使用者',
       dataIndex: 'user_email',
       key: 'user_email',
       width: 200,
@@ -228,7 +221,7 @@ const AuditLogs = () => {
       ),
     },
     {
-      title: t('auditLogs.colAction'),
+      title: '操作類型',
       dataIndex: 'action',
       key: 'action',
       width: 160,
@@ -239,7 +232,7 @@ const AuditLogs = () => {
       ),
     },
     {
-      title: t('auditLogs.colTarget'),
+      title: '操作對象',
       dataIndex: 'target',
       key: 'target',
       width: 200,
@@ -251,7 +244,7 @@ const AuditLogs = () => {
       ),
     },
     {
-      title: t('auditLogs.colCountry'),
+      title: '國家',
       dataIndex: 'country_code',
       key: 'country_code',
       width: 70,
@@ -259,26 +252,26 @@ const AuditLogs = () => {
       render: (code) => code ? <Tag>{code}</Tag> : '-',
     },
     {
-      title: t('auditLogs.colResult'),
+      title: '結果',
       dataIndex: 'result',
       key: 'result',
       width: 90,
       align: 'center',
       render: (result) => (
         result === 'failure'
-          ? <Badge status="error" text={t('auditLogs.resultFailure')} />
-          : <Badge status="success" text={t('auditLogs.resultSuccess')} />
+          ? <Badge status="error" text="失敗" />
+          : <Badge status="success" text="成功" />
       ),
     },
     {
-      title: t('auditLogs.colIp'),
+      title: 'IP 位址',
       dataIndex: 'ip_address',
       key: 'ip_address',
       width: 130,
       render: (ip) => ip || '-',
     },
     {
-      title: t('auditLogs.colDuration'),
+      title: '耗時',
       dataIndex: 'response_time_ms',
       key: 'response_time_ms',
       width: 80,
@@ -286,7 +279,7 @@ const AuditLogs = () => {
       render: (ms) => ms != null ? `${ms} ms` : '-',
     },
     {
-      title: t('auditLogs.colDetail'),
+      title: '詳情',
       key: 'detail',
       width: 70,
       align: 'center',
@@ -307,14 +300,14 @@ const AuditLogs = () => {
   return (
     <div className="audit-logs-page settings-page">
       <div className="settings-header">
-        <h2>{t('auditLogs.title')}</h2>
+        <h2>稽核日誌</h2>
         <Space>
           <Button
             icon={<ReloadOutlined />}
             onClick={() => fetchLogs(page, pageSize)}
             loading={loading}
           >
-            {t('auditLogs.refresh')}
+            重新整理
           </Button>
           <Button
             type="primary"
@@ -322,7 +315,7 @@ const AuditLogs = () => {
             onClick={handleExport}
             loading={exporting}
           >
-            {t('auditLogs.exportCsv')}
+            匯出 CSV
           </Button>
         </Space>
       </div>
@@ -331,7 +324,7 @@ const AuditLogs = () => {
       <div className="audit-filters">
         <div className="audit-filter-row">
           <Input
-            placeholder={t('auditLogs.searchEmail')}
+            placeholder="搜尋使用者 Email"
             prefix={<SearchOutlined />}
             value={filterEmail}
             onChange={(e) => setFilterEmail(e.target.value)}
@@ -339,7 +332,7 @@ const AuditLogs = () => {
             style={{ width: 220 }}
           />
           <Select
-            placeholder={t('auditLogs.actionCategory')}
+            placeholder="操作類別"
             value={filterActionCategory}
             onChange={(v) => { setFilterActionCategory(v); setFilterAction(null); }}
             allowClear
@@ -350,18 +343,18 @@ const AuditLogs = () => {
             ))}
           </Select>
           <Select
-            placeholder={t('auditLogs.actionResult')}
+            placeholder="操作結果"
             value={filterResult}
             onChange={setFilterResult}
             allowClear
             style={{ width: 120 }}
           >
-            <Option value="success">{t('auditLogs.resultSuccess')}</Option>
-            <Option value="failure">{t('auditLogs.resultFailure')}</Option>
+            <Option value="success">成功</Option>
+            <Option value="failure">失敗</Option>
           </Select>
           {isRoot && (
             <Select
-              placeholder={t('auditLogs.country')}
+              placeholder="國家"
               value={filterCountry}
               onChange={setFilterCountry}
               allowClear
@@ -373,7 +366,7 @@ const AuditLogs = () => {
             </Select>
           )}
           <Input
-            placeholder={t('auditLogs.searchTarget')}
+            placeholder="搜尋操作對象"
             prefix={<FilterOutlined />}
             value={filterTarget}
             onChange={(e) => setFilterTarget(e.target.value)}
@@ -385,12 +378,12 @@ const AuditLogs = () => {
             value={filterDateRange}
             onChange={setFilterDateRange}
             style={{ width: 360 }}
-            placeholder={[t('auditLogs.startTime'), t('auditLogs.endTime')]}
+            placeholder={['開始時間', '結束時間']}
           />
-          <Button onClick={handleReset}>{t('auditLogs.resetFilter')}</Button>
+          <Button onClick={handleReset}>重設篩選</Button>
         </div>
         <div className="audit-filter-summary">
-          {t('auditLogs.totalRecords', { total })}
+          共 <strong>{total}</strong> 筆記錄
         </div>
       </div>
 
@@ -408,7 +401,7 @@ const AuditLogs = () => {
           total,
           showSizeChanger: true,
           pageSizeOptions: ['20', '50', '100', '200'],
-          showTotal: (tot) => t('auditLogs.showTotal', { total: tot }),
+          showTotal: (t) => `共 ${t} 筆`,
           onChange: (p, ps) => {
             setPage(p);
             setPageSize(ps);
@@ -421,27 +414,27 @@ const AuditLogs = () => {
 
       {/* 詳情 Modal */}
       <Modal
-        title={t('auditLogs.detailTitle')}
+        title="日誌詳情"
         open={detailModalOpen}
         onCancel={() => setDetailModalOpen(false)}
         footer={[
           <Button key="close" onClick={() => setDetailModalOpen(false)}>
-            {t('common.close')}
+            關閉
           </Button>,
         ]}
         width={640}
       >
         {selectedLog && (
           <Descriptions column={1} bordered size="small">
-            <Descriptions.Item label={t('auditLogs.detailTime')}>
+            <Descriptions.Item label="時間">
               {selectedLog.timestamp
                 ? dayjs(selectedLog.timestamp).format('YYYY-MM-DD HH:mm:ss')
                 : '-'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailUser')}>
+            <Descriptions.Item label="使用者">
               {selectedLog.user_email || '-'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailAction')}>
+            <Descriptions.Item label="操作類型">
               <Tag color={getActionColor(selectedLog.action)}>
                 {ACTION_LABELS[selectedLog.action] || selectedLog.action}
               </Tag>
@@ -449,37 +442,37 @@ const AuditLogs = () => {
                 ({selectedLog.action})
               </Text>
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailTarget')}>
+            <Descriptions.Item label="操作對象">
               {selectedLog.target || '-'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailCountry')}>
+            <Descriptions.Item label="國家">
               {selectedLog.country_code || '-'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailResult')}>
+            <Descriptions.Item label="結果">
               {selectedLog.result === 'failure'
-                ? <Badge status="error" text={t('auditLogs.resultFailure')} />
-                : <Badge status="success" text={t('auditLogs.resultSuccess')} />}
+                ? <Badge status="error" text="失敗" />
+                : <Badge status="success" text="成功" />}
             </Descriptions.Item>
             {selectedLog.error_message && (
-              <Descriptions.Item label={t('auditLogs.detailErrorMsg')}>
+              <Descriptions.Item label="失敗原因">
                 <Text type="danger">{selectedLog.error_message}</Text>
               </Descriptions.Item>
             )}
-            <Descriptions.Item label={t('auditLogs.detailIp')}>
+            <Descriptions.Item label="IP 位址">
               {selectedLog.ip_address || '-'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailBrowser')}>
+            <Descriptions.Item label="瀏覽器">
               <Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
                 {selectedLog.user_agent || '-'}
               </Text>
             </Descriptions.Item>
-            <Descriptions.Item label={t('auditLogs.detailResponseTime')}>
+            <Descriptions.Item label="回應時間">
               {selectedLog.response_time_ms != null
                 ? `${selectedLog.response_time_ms} ms`
                 : '-'}
             </Descriptions.Item>
             {selectedLog.details && Object.keys(selectedLog.details).length > 0 && (
-              <Descriptions.Item label={t('auditLogs.detailExtra')}>
+              <Descriptions.Item label="補充資訊">
                 <pre className="audit-details-json">
                   {JSON.stringify(selectedLog.details, null, 2)}
                 </pre>

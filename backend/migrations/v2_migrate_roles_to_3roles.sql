@@ -1,12 +1,20 @@
 -- =============================================================
 -- v2 角色遷移：5角色 → 3角色
 -- 執行前請先備份資料庫！
--- 對應 branch: v2-3roles
 --
 -- 角色對應：
 --   super_admin                              → root
 --   platform_admin / user_manager / library_manager → admin
 --   user                                     → user（不變）
+--
+-- 執行順序：
+--   1. 先在 Global DB 執行（user_route_map, agent_acl, global_library）
+--   2. 再在每個國家的 Local DB 執行（local_library）
+-- =============================================================
+
+
+-- =============================================================
+-- [GLOBAL DB] 在 Global PostgreSQL 執行以下區塊
 -- =============================================================
 
 BEGIN;
@@ -92,10 +100,51 @@ WHERE auth_rules ? 'authorized_roles'
 
 
 -- ---------------------------------------------------------------
--- 4. 驗證結果（執行後可手動確認）
+-- 4. 驗證結果（Global DB）
 -- ---------------------------------------------------------------
 -- SELECT role, COUNT(*) FROM user_route_map GROUP BY role ORDER BY role;
 -- SELECT allowed_users->'authorized_roles' FROM agent_acl LIMIT 10;
 -- SELECT auth_rules->'authorized_roles' FROM global_library LIMIT 10;
+
+COMMIT;
+
+
+-- =============================================================
+-- [LOCAL DB] 在每個國家的 Local PostgreSQL 分別執行以下區塊
+-- （TW / SG / JP / TH 各執行一次）
+-- =============================================================
+
+BEGIN;
+
+-- ---------------------------------------------------------------
+-- 5. local_library：遷移 auth_rules.authorized_roles JSONB 陣列
+-- ---------------------------------------------------------------
+UPDATE local_library
+SET auth_rules = jsonb_set(
+  auth_rules,
+  '{authorized_roles}',
+  COALESCE(
+    (
+      SELECT jsonb_agg(
+        CASE elem::text
+          WHEN '"super_admin"'     THEN '"root"'::jsonb
+          WHEN '"platform_admin"'  THEN '"admin"'::jsonb
+          WHEN '"user_manager"'    THEN '"admin"'::jsonb
+          WHEN '"library_manager"' THEN '"admin"'::jsonb
+          ELSE elem
+        END
+      )
+      FROM jsonb_array_elements(auth_rules->'authorized_roles') AS elem
+    ),
+    '[]'::jsonb
+  )
+)
+WHERE auth_rules ? 'authorized_roles'
+  AND jsonb_array_length(auth_rules->'authorized_roles') > 0;
+
+-- ---------------------------------------------------------------
+-- 6. 驗證結果（Local DB）
+-- ---------------------------------------------------------------
+-- SELECT auth_rules->'authorized_roles' FROM local_library LIMIT 10;
 
 COMMIT;
