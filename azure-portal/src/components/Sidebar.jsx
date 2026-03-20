@@ -11,6 +11,7 @@ import {
   SafetyOutlined,
   DatabaseOutlined,
   TeamOutlined,
+  AuditOutlined,
   DownOutlined,
   RightOutlined,
 } from '@ant-design/icons';
@@ -46,6 +47,9 @@ const Sidebar = ({ collapsed }) => {
   }
   if (hasPermission('manage_users')) {
     settingsChildren.push({ key: 'user-management', icon: <TeamOutlined />, label: t('sidebar.userManagement'), path: '/settings/users' });
+  }
+  if (hasPermission('manage_users') || hasPermission('cross_country_logs')) {
+    settingsChildren.push({ key: 'audit-logs', icon: <AuditOutlined />, label: t('sidebar.auditLogs'), path: '/settings/audit-logs' });
   }
 
   const menuItems = [

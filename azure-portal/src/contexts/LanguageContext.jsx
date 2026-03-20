@@ -1,32 +1,31 @@
-import React, { createContext, useContext, useMemo, useCallback } from 'react';
-import { locales, DEFAULT_LANGUAGE, getLanguageByCountry, translate } from '../i18n';
-import { useCountry } from './CountryContext';
-import { useAuth } from './AuthContext';
+import React, { createContext, useContext, useMemo, useCallback, useState, useEffect } from 'react';
+import { locales, DEFAULT_LANGUAGE, translate } from '../i18n';
 
 const LanguageContext = createContext(null);
+
+const LANGUAGE_STORAGE_KEY = 'ctbc_language';
 
 /**
  * LanguageProvider
  *
- * 目前固定使用繁體中文 (zh-TW)。
- * 未來如需恢復自動語言切換，取消下方註解即可。
- *
- * 原始邏輯（根據員工所在國家自動決定顯示語言）：
- * - 使用 user.country 作為語言來源
- * - super_admin 切換國家時，語言也會跟著切換
+ * 支援手動切換語言（繁體中文 / English）。
+ * 使用者選擇的語言會儲存在 localStorage 中，下次開啟時自動套用。
  */
 export const LanguageProvider = ({ children }) => {
-  const { user } = useAuth();
-  const { displayCountry } = useCountry();
+  // 從 localStorage 讀取使用者偏好語言，預設繁體中文
+  const [language, setLanguageState] = useState(() => {
+    const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (saved && locales[saved]) return saved;
+    return 'zh-TW';
+  });
 
-  // ===== 固定使用繁體中文 =====
-  const language = 'zh-TW';
-
-  // ===== 原始自動切換邏輯（未來恢復時取消註解） =====
-  // const language = useMemo(() => {
-  //   const country = displayCountry || user?.country || 'TW';
-  //   return getLanguageByCountry(country);
-  // }, [displayCountry, user?.country]);
+  // 切換語言並儲存到 localStorage
+  const setLanguage = useCallback((lang) => {
+    if (locales[lang]) {
+      setLanguageState(lang);
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    }
+  }, []);
 
   // 取得當前語言包
   const translations = useMemo(() => {
@@ -44,10 +43,11 @@ export const LanguageProvider = ({ children }) => {
   const value = useMemo(
     () => ({
       language,
+      setLanguage,
       translations,
       t,
     }),
-    [language, translations, t]
+    [language, setLanguage, translations, t]
   );
 
   return (
@@ -59,7 +59,7 @@ export const LanguageProvider = ({ children }) => {
 
 /**
  * useLanguage hook
- * @returns {{ language: string, translations: object, t: (key: string, params?: object) => string }}
+ * @returns {{ language: string, setLanguage: (lang: string) => void, translations: object, t: (key: string, params?: object) => string }}
  */
 export const useLanguage = () => {
   const context = useContext(LanguageContext);

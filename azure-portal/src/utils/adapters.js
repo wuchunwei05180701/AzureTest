@@ -224,6 +224,7 @@ export function adaptLibraryDoc(apiData) {
     files, // 多檔案資訊陣列 [{ filename, relative_path, file_size }]
     libraryName: apiData.library_name ?? '', // 所屬館名（供首頁顯示）
     createdAt: apiData.created_at ?? null, // 建立時間
+    auth_rules: apiData.auth_rules ?? {}, // 存取控制規則（authorized_users, authorized_roles, exception_list）
     _libraryName: apiData.library_name ?? '', // 內部欄位，供 adaptLibraryDocs 分組用
   };
 }

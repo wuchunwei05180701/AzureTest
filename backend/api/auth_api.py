@@ -1,10 +1,12 @@
 """
-認證 API：OTP 申請/驗證/登入/登出
+認證 API：OTP 申請/驗證/登入/登出/個人資料
 """
 import logging
+import mimetypes
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select, update
 
 from config import settings
@@ -20,8 +22,10 @@ from core.security import (
 )
 from models.global_models import UserRouteMap, GlobalAuditLog
 from models.local_models import LoginAudit, OTPVault
-from models.schemas import MessageResponse, OTPRequest, OTPVerify, TokenResponse, UserInfo
+from models.schemas import MessageResponse, OTPRequest, OTPVerify, ProfileUpdate, TokenResponse, UserInfo
 from services.email_service import send_otp_email
+from services.storage_service import storage_service
+from utils.audit_logger import audit_log, AuditAction
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,9 +82,13 @@ async def request_otp(body: OTPRequest, request: Request):
 
     # 4. 寄送 OTP（SMTP 未設定時回傳 OTP 供直接登入）
     dev_otp = None
-    smtp_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
-
-    if smtp_configured:
+    if settings.APP_ENV == "development":
+        dev_otp = otp_code  # 開發模式下回傳給前端，方便測試
+        # 開發環境也嘗試寄送 Email（如果 SMTP 有設定的話）
+        if settings.SMTP_USER and settings.SMTP_PASSWORD:
+            await send_otp_email(to_email=email, otp_code=otp_code)
+    else:
+        # 正式環境：寄送 OTP Email
         email_sent = await send_otp_email(to_email=email, otp_code=otp_code)
         if not email_sent:
             logger.error(f"OTP Email 寄送失敗: {email}")
@@ -88,14 +96,6 @@ async def request_otp(body: OTPRequest, request: Request):
                 status_code=500,
                 detail="驗證碼寄送失敗，請稍後再試或聯繫管理員"
             )
-        logger.info(f"OTP Email 已寄送至 {email}")
-    else:
-        # SMTP 未設定：直接回傳 OTP（開發/測試用）
-        logger.warning(f"SMTP 未設定，直接回傳 OTP for {email}")
-        dev_otp = otp_code
-
-    # 5. 記錄稽核
-    await _log_audit(country, email, "otp_requested", "auth", request)
 
     return MessageResponse(message="OTP 已寄送至您的 Email", detail=email, dev_otp=dev_otp)
 
@@ -157,7 +157,7 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
                     await g_session.commit()
 
                 await _log_login(local_session, email, "locked", request)
-                await _log_audit(country, email, "account_locked", "auth", request)
+                await _log_audit(country, email, AuditAction.ACCOUNT_LOCKED, email, request)
                 raise HTTPException(status_code=403, detail="OTP 錯誤次數過多，帳號已鎖定")
 
             await local_session.commit()
@@ -193,7 +193,7 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
         await g_session.commit()
 
     # 8. 同步脫敏稽核到 Global
-    await _log_audit(country, email, "login_success", "auth", request)
+    await _log_audit(country, email, AuditAction.LOGIN_SUCCESS, email, request)
 
     # 9. 產生 JWT
     permissions = get_role_permissions(user.role)
@@ -233,6 +233,11 @@ async def get_current_user(payload: dict = Depends(get_current_user_payload)):
 
     permissions = get_role_permissions(user.role)
 
+    # 產生頭貼 URL（若有）
+    avatar_url = None
+    if user.avatar_url:
+        avatar_url = user.avatar_url
+
     return UserInfo(
         email=user.email,
         name=user.name,
@@ -240,6 +245,7 @@ async def get_current_user(payload: dict = Depends(get_current_user_payload)):
         department=user.department,
         country=user.country_code,
         permissions=permissions,
+        avatar_url=avatar_url,
     )
 
 
@@ -248,8 +254,115 @@ async def logout(payload: dict = Depends(get_current_user_payload)):
     """登出（前端清除 token，後端記錄稽核）"""
     email = payload["sub"]
     country = payload.get("country", "TW")
-    await _log_audit(country, email, "logout", "auth")
+    await _log_audit(country, email, AuditAction.LOGOUT, email)
     return MessageResponse(message="已登出")
+
+
+@router.patch("/profile", response_model=MessageResponse)
+async def update_profile(
+    body: ProfileUpdate,
+    payload: dict = Depends(get_current_user_payload),
+):
+    """更新個人資料（姓名）"""
+    email = payload["sub"]
+
+    update_data = {}
+    if body.name is not None:
+        update_data["name"] = body.name
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="沒有要更新的欄位")
+
+    update_data["updated_at"] = datetime.now(timezone.utc)
+
+    async with GlobalSessionLocal() as session:
+        result = await session.execute(
+            update(UserRouteMap)
+            .where(UserRouteMap.email == email)
+            .values(**update_data)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="使用者不存在")
+        await session.commit()
+
+    logger.info(f"使用者個人資料已更新: {email}")
+    return MessageResponse(message="個人資料已更新", detail=email)
+
+
+@router.post("/avatar", response_model=MessageResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    payload: dict = Depends(get_current_user_payload),
+):
+    """上傳使用者頭貼（PNG/JPG，最大 5MB）"""
+    email = payload["sub"]
+
+    # 驗證檔案類型
+    allowed_types = {"image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="僅支援 PNG、JPG、GIF、WebP 格式")
+
+    # 驗證檔案大小（5MB）
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="圖片大小超過 5MB 上限")
+
+    # 重置 file 讀取位置
+    import io
+    file.file = io.BytesIO(content)
+    file.size = len(content)
+
+    # 儲存頭貼
+    result = await storage_service.save_avatar(email, file)
+    relative_path = result["relative_path"]
+
+    # 更新資料庫
+    async with GlobalSessionLocal() as session:
+        await session.execute(
+            update(UserRouteMap)
+            .where(UserRouteMap.email == email)
+            .values(avatar_url=relative_path, updated_at=datetime.now(timezone.utc))
+        )
+        await session.commit()
+
+    logger.info(f"使用者頭貼已上傳: {email} → {relative_path}")
+    return MessageResponse(message="頭貼已上傳", detail=relative_path)
+
+
+@router.delete("/avatar", response_model=MessageResponse)
+async def delete_avatar(
+    payload: dict = Depends(get_current_user_payload),
+):
+    """刪除使用者頭貼"""
+    email = payload["sub"]
+
+    storage_service.delete_avatar(email)
+
+    async with GlobalSessionLocal() as session:
+        await session.execute(
+            update(UserRouteMap)
+            .where(UserRouteMap.email == email)
+            .values(avatar_url=None, updated_at=datetime.now(timezone.utc))
+        )
+        await session.commit()
+
+    logger.info(f"使用者頭貼已刪除: {email}")
+    return MessageResponse(message="頭貼已刪除")
+
+
+@router.get("/avatar")
+async def get_avatar(
+    payload: dict = Depends(get_current_user_payload),
+):
+    """取得當前使用者頭貼（回傳圖片 blob）"""
+    email = payload["sub"]
+
+    file_path = storage_service.get_avatar_path(email)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="尚未上傳頭貼")
+
+    media_type = mimetypes.guess_type(str(file_path))[0] or "image/jpeg"
+    return FileResponse(path=str(file_path), media_type=media_type)
 
 
 # === 內部工具函式 ===
@@ -265,17 +378,24 @@ async def _log_login(session, email: str, status: str, request: Request = None):
     session.add(audit)
 
 
-async def _log_audit(country: str, email: str, action: str, target: str, request: Request = None):
-    """記錄脫敏稽核到 Global DB"""
-    try:
-        async with GlobalSessionLocal() as session:
-            log = GlobalAuditLog(
-                user_email=email,
-                action=action,
-                target=target,
-                country_code=country,
-            )
-            session.add(log)
-            await session.commit()
-    except Exception as e:
-        logger.error(f"稽核記錄失敗: {e}")
+async def _log_audit(
+    country: str,
+    email: str,
+    action: str,
+    target: str,
+    request: Request = None,
+    result: str = "success",
+    error_message: str = None,
+    details: dict = None,
+):
+    """記錄稽核到 Global DB（使用新的 audit_logger 服務）"""
+    audit_log(
+        action=action,
+        operator_email=email,
+        country_code=country,
+        target=target,
+        result=result,
+        error_message=error_message,
+        details=details,
+        request=request,
+    )

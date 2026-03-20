@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from core.security import get_current_user_payload
 from services.pii_service import get_pii_service
+from utils.audit_logger import audit_log, AuditAction
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -280,6 +281,29 @@ async def scan_files(
             types_str = ", ".join(pf.entity_types)
             details.append(f"「{pf.filename}」含 {pf.entity_count} 個 PII（{types_str}）")
         msg = f"偵測到個人敏感資訊（PII）：{'; '.join(details)}。請遮蔽機密資料後再試。"
+
+        # 寫入稽核日誌：前端預掃描偵測到 PII，上傳被前端阻擋
+        operator_email = payload.get("sub", "")
+        operator_country = payload.get("country", "TW")
+        audit_log(
+            action=AuditAction.PII_BLOCKED_UPLOAD,
+            operator_email=operator_email,
+            country_code=operator_country,
+            target=", ".join(pf.filename for pf in pii_files),
+            result="failure",
+            error_message=f"前端預掃描阻擋上傳：{'; '.join(details)}",
+            details={
+                "pii_files": [
+                    {
+                        "filename": pf.filename,
+                        "entity_count": pf.entity_count,
+                        "entity_types": pf.entity_types,
+                    }
+                    for pf in pii_files
+                ]
+            },
+            request=request,
+        )
     else:
         msg = "未偵測到個人敏感資訊"
 

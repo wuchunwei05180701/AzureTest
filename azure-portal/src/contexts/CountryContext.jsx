@@ -6,7 +6,8 @@ const CountryContext = createContext(null);
 
 export const CountryProvider = ({ children }) => {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'super_admin';
+  // root 角色可跨國查看（原 super_admin）
+  const isSuperAdmin = user?.role === 'root';
   
   const [countries, setCountries] = useState([]);
   const [selectedCountry, setSelectedCountry] = useState(undefined);
@@ -28,14 +29,14 @@ export const CountryProvider = ({ children }) => {
     if (!user) {
       setSelectedCountry(undefined);
     } else if (isSuperAdmin && selectedCountry === undefined) {
-      // super_admin 預設選擇自己的國家
+      // root 預設選擇自己的國家
       setSelectedCountry(user.country || 'TW');
     }
   }, [user, isSuperAdmin]);
 
   // 取得當前有效的國家代碼（用於 API 呼叫）
   const effectiveCountry = isSuperAdmin ? selectedCountry : undefined;
-  // 非 super_admin: undefined 表示不傳 country 參數（後端會用使用者自己的國家）
+  // 非 root: undefined 表示不傳 country 參數（後端會用使用者自己的國家）
 
   // 取得顯示用的國家代碼
   const displayCountry = selectedCountry || user?.country || 'TW';

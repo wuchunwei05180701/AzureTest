@@ -10,7 +10,8 @@ export const removeToken = () => localStorage.removeItem(TOKEN_KEY);
 // ===== Axios Instance =====
 // VITE_API_BASE_URL: 部署時指向 backend URL，本地開發用 proxy
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-const BASE_PREFIX = window.location.pathname.startsWith('/AzureTest') ? '/AzureTest' : '';
+// 偵測是否在 /AzureTest/ 路徑下（Nginx 反向代理）
+export const BASE_PREFIX = window.location.pathname.startsWith('/AzureTest') ? '/AzureTest' : '';
 
 const api = axios.create({
   baseURL: `${API_BASE}${BASE_PREFIX}/api`,
@@ -60,6 +61,30 @@ export const authAPI = {
 
   logout: () =>
     api.post('/auth/logout'),
+
+  /** 更新個人資料（姓名）
+   * @param {object} data - { name? }
+   */
+  updateProfile: (data) =>
+    api.patch('/auth/profile', data),
+
+  /** 上傳頭貼
+   * @param {FormData} formData - 包含 file 的 FormData
+   */
+  uploadAvatar: (formData) =>
+    api.post('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+
+  /** 刪除頭貼 */
+  deleteAvatar: () =>
+    api.delete('/auth/avatar'),
+
+  /** 取得頭貼 URL（回傳 blob URL）*/
+  getAvatarUrl: () => {
+    const token = getToken();
+    return `${BASE_PREFIX}/api/auth/avatar`;
+  },
 };
 
 // ===== 使用者管理 API =====
@@ -341,6 +366,14 @@ export const libraryAPI = {
    */
   createCatalog: (data, country) =>
     api.post('/library/catalogs', data, { params: country ? { country } : {} }),
+
+  /** 更新館名或描述（若館名變更，後端會同步更新所有文件的 library_name）
+   * @param {string} catalogId - 館 ID
+   * @param {object} data - { library_name?, description? }
+   * @param {string} [country] - 國家代碼（僅 super_admin 可跨國）
+   */
+  updateCatalog: (catalogId, data, country) =>
+    api.put(`/library/catalogs/${catalogId}`, data, { params: country ? { country } : {} }),
 };
 
 // ===== 對話 API =====
@@ -494,6 +527,32 @@ export const countryAPI = {
   /** 取得已設定 Local DB 的國家列表 */
   list: () =>
     api.get('/countries'),
+};
+
+// ===== 稽核日誌 API =====
+export const auditAPI = {
+  /**
+   * 查詢稽核日誌（分頁 + 篩選）
+   * @param {object} params - { page, page_size, user_email, action, action_category, country_code, result, target, date_from, date_to }
+   */
+  list: (params = {}) =>
+    api.get('/audit-logs', { params }),
+
+  /**
+   * 取得所有 action 類型列表（供篩選下拉選單用）
+   */
+  listActions: () =>
+    api.get('/audit-logs/actions'),
+
+  /**
+   * 匯出稽核日誌為 CSV
+   * @param {object} params - 篩選條件（同 list）
+   */
+  export: (params = {}) =>
+    api.get('/audit-logs/export', {
+      params,
+      responseType: 'blob',
+    }),
 };
 
 export default api;

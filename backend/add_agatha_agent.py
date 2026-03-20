@@ -53,7 +53,7 @@ def main():
         print(f"✅ Agent 已插入: {agent_id} (Agatha AI 助理)")
 
         # 插入 ACL（所有角色皆可使用）
-        all_roles = ["user", "user_manager", "library_manager", "platform_admin", "super_admin"]
+        all_roles = ["user", "admin", "root"]
         import json
         acl_json = json.dumps({
             "authorized_roles": all_roles,

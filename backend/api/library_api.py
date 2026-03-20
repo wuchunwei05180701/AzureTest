@@ -1,7 +1,7 @@
 """
 圖書館 API：文件 CRUD + 權限設定 + 上傳/下載 + 館名目錄管理
 圖書館存在 Local DB（各國 PostgreSQL），國家隔離
-super_admin 可跨國查看（透過 ?country=XX 參數）
+root 可跨國查看（透過 ?country=XX 參數）
 """
 import logging
 from typing import List, Optional
@@ -19,6 +19,7 @@ from models.local_models import LocalLibrary, LocalLibraryCatalog
 from models.schemas import (
     LibraryAuthUpdate,
     LibraryCatalogCreate,
+    LibraryCatalogUpdate,
     LibraryCatalogResponse,
     LibraryDocCreate,
     LibraryDocResponse,
@@ -27,6 +28,7 @@ from models.schemas import (
 )
 from services.storage_service import storage_service
 from services.pii_service import get_pii_service
+from utils.audit_logger import audit_log, AuditAction
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,14 +37,14 @@ router = APIRouter()
 def _resolve_country(payload: dict, query_country: Optional[str] = None) -> str:
     """
     解析要查詢的國家：
-    - super_admin 可透過 query param 指定國家
+    - root 可透過 query param 指定國家
     - 其他角色只能查自己的國家
     """
     user_country = payload.get("country", "TW")
     role = payload.get("role", "user")
 
     if query_country and query_country != user_country:
-        if role != "super_admin":
+        if role != "root":
             raise HTTPException(status_code=403, detail="只有最高管理者可以跨國查看")
         # 驗證國家是否存在
         if query_country not in settings.LOCAL_DB_CONFIG:
@@ -56,7 +58,7 @@ def _resolve_country(payload: dict, query_country: Optional[str] = None) -> str:
 
 @router.get("/catalogs", response_model=List[LibraryCatalogResponse])
 async def list_catalogs(
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """取得所有館名列表（含各館文件數量）"""
@@ -97,7 +99,7 @@ async def list_catalogs(
 @router.post("/catalogs", response_model=LibraryCatalogResponse)
 async def create_catalog(
     body: LibraryCatalogCreate,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """手動建立新館（不需要同時上傳文件）"""
@@ -134,11 +136,95 @@ async def create_catalog(
     )
 
 
+@router.put("/catalogs/{catalog_id}", response_model=LibraryCatalogResponse)
+async def update_catalog(
+    catalog_id: str,
+    body: LibraryCatalogUpdate,
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
+    payload: dict = Depends(require_permission("manage_library")),
+):
+    """更新館名或描述（若館名變更，同步更新所有文件的 library_name）"""
+    target_country = _resolve_country(payload, country)
+
+    session = await data_router.get_local_pg(target_country)
+    try:
+        result = await session.execute(
+            select(LocalLibraryCatalog).where(
+                LocalLibraryCatalog.catalog_id == catalog_id
+            )
+        )
+        catalog = result.scalar_one_or_none()
+        if not catalog:
+            raise HTTPException(status_code=404, detail="館不存在")
+
+        old_name = catalog.library_name
+        update_data = {}
+
+        if body.library_name is not None and body.library_name != old_name:
+            # 檢查新館名是否已存在
+            dup = await session.execute(
+                select(LocalLibraryCatalog).where(
+                    LocalLibraryCatalog.library_name == body.library_name
+                )
+            )
+            if dup.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail=f"館名「{body.library_name}」已存在")
+            update_data["library_name"] = body.library_name
+
+        if body.description is not None:
+            update_data["description"] = body.description
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="沒有要更新的欄位")
+
+        # 更新 catalog
+        await session.execute(
+            update(LocalLibraryCatalog)
+            .where(LocalLibraryCatalog.catalog_id == catalog_id)
+            .values(**update_data)
+        )
+
+        # 若館名有變更，同步更新所有文件的 library_name
+        if "library_name" in update_data:
+            await session.execute(
+                update(LocalLibrary)
+                .where(LocalLibrary.library_name == old_name)
+                .values(library_name=update_data["library_name"])
+            )
+            logger.info(f"館名已更新: {old_name} → {update_data['library_name']} ({target_country})")
+
+        await session.commit()
+        await session.refresh(catalog)
+    finally:
+        await session.close()
+
+    # 計算文件數量
+    session = await data_router.get_local_pg(target_country)
+    try:
+        count_result = await session.execute(
+            select(func.count(LocalLibrary.doc_id)).where(
+                LocalLibrary.library_name == catalog.library_name
+            )
+        )
+        doc_count = count_result.scalar() or 0
+    finally:
+        await session.close()
+
+    return LibraryCatalogResponse(
+        catalog_id=str(catalog.catalog_id),
+        library_name=catalog.library_name,
+        description=catalog.description,
+        image_url=catalog.image_url,
+        doc_count=doc_count,
+        created_at=catalog.created_at,
+    )
+
+
 @router.post("/catalogs/{catalog_id}/image", response_model=MessageResponse)
 async def upload_catalog_image(
     catalog_id: str,
     file: UploadFile = File(...),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """上傳館封面圖片（僅限 PNG/JPG）"""
@@ -202,7 +288,7 @@ async def upload_catalog_image(
 @router.delete("/catalogs/{catalog_id}/image", response_model=MessageResponse)
 async def delete_catalog_image(
     catalog_id: str,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """刪除館封面圖片"""
@@ -245,7 +331,7 @@ async def delete_catalog_image(
 @router.get("/catalogs/{catalog_id}/image")
 async def get_catalog_image(
     catalog_id: str,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """取得館封面圖片"""
@@ -289,7 +375,7 @@ async def get_catalog_image(
 
 @router.get("", response_model=List[LibraryDocResponse])
 async def list_library(
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """取得圖書館文件列表（依授權過濾）"""
@@ -306,7 +392,7 @@ async def list_library(
     finally:
         await session.close()
 
-    # platform_admin / super_admin 看到全部
+    # root / admin 看到全部
     if has_permission(role, "access_all_docs"):
         return [_doc_to_response(d) for d in all_docs]
 
@@ -322,7 +408,7 @@ async def list_library(
 @router.get("/latest", response_model=List[LibraryDocResponse])
 async def list_latest_library(
     limit: int = Query(4, ge=1, le=20, description="回傳筆數"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """取得最新的圖書館文件（按建立時間倒序，供首頁展示）"""
@@ -351,7 +437,7 @@ async def list_latest_library(
 
 @router.get("/all", response_model=List[LibraryDocResponse])
 async def list_all_library(
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """取得所有文件（管理用）"""
@@ -375,7 +461,7 @@ async def upload_document(
     library_name: str = Query(..., description="館名"),
     name: str = Query(..., description="文件名稱"),
     description: str = Query("", description="文件描述"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """上傳文件至本國圖書館（支援多檔案）"""
@@ -501,6 +587,21 @@ async def upload_document(
                         blocked_details.append(
                             f"「{pf['filename']}」含 {pf.get('entity_count', 0)} 個 PII（{types_str}）"
                         )
+                    # 寫入 PII 阻擋稽核日誌
+                    audit_log(
+                        action=AuditAction.PII_BLOCKED_UPLOAD,
+                        operator_email=payload.get("sub", ""),
+                        country_code=target_country,
+                        target=name,
+                        result="failure",
+                        error_message=f"PII 偵測阻擋上傳：{'; '.join(blocked_details)}",
+                        details={
+                            "library_name": library_name,
+                            "doc_name": name,
+                            "pii_files": pii_files,
+                        },
+                        request=request,
+                    )
                     raise HTTPException(
                         status_code=422,
                         detail=f"上傳被拒絕：偵測到個人敏感資訊（PII）。{'; '.join(blocked_details)}。請移除敏感資訊後重新上傳。",
@@ -542,13 +643,23 @@ async def upload_document(
     msg = "文件已上傳"
     if pii_warning:
         msg += f"。{pii_warning}"
+
+    operator_email = payload.get("sub", "")
+    audit_log(
+        action=AuditAction.LIBRARY_UPLOAD,
+        operator_email=operator_email,
+        country_code=target_country,
+        target=doc_id,
+        details={"library_name": library_name, "doc_name": name, "file_count": len(files_info)},
+        request=request,
+    )
     return MessageResponse(message=msg, detail=doc_id)
 
 
 @router.delete("/by-library/{library_name}", response_model=MessageResponse)
 async def delete_library(
     library_name: str,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """刪除整個館（僅限空館，同時刪除 catalog 記錄）"""
@@ -589,13 +700,17 @@ async def delete_library(
 @router.delete("/{doc_id}", response_model=MessageResponse)
 async def delete_document(
     doc_id: str,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    request: Request,
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """刪除文件"""
     target_country = _resolve_country(payload, country)
+    operator_email = payload.get("sub", "")
 
     session = await data_router.get_local_pg(target_country)
+    doc_name = doc_id
+    library_name = ""
     try:
         # 取得文件資訊
         doc_result = await session.execute(
@@ -604,6 +719,9 @@ async def delete_document(
         doc = doc_result.scalar_one_or_none()
         if not doc:
             raise HTTPException(status_code=404, detail="文件不存在")
+
+        doc_name = doc.name
+        library_name = doc.library_name
 
         await session.execute(
             delete(LocalLibrary).where(LocalLibrary.doc_id == doc_id)
@@ -615,6 +733,14 @@ async def delete_document(
     # 刪除實體檔案
     storage_service.delete_files(target_country, "library", doc_id)
 
+    audit_log(
+        action=AuditAction.LIBRARY_DELETE,
+        operator_email=operator_email,
+        country_code=target_country,
+        target=doc_id,
+        details={"doc_name": doc_name, "library_name": library_name},
+        request=request,
+    )
     return MessageResponse(message="文件已刪除")
 
 
@@ -622,11 +748,13 @@ async def delete_document(
 async def update_document(
     doc_id: str,
     body: LibraryDocUpdate,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    request: Request,
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """編輯文件資訊（名稱、描述、館名）"""
     target_country = _resolve_country(payload, country)
+    operator_email = payload.get("sub", "")
 
     update_data = {}
     if body.name is not None:
@@ -652,6 +780,14 @@ async def update_document(
     finally:
         await session.close()
 
+    audit_log(
+        action=AuditAction.LIBRARY_UPDATE,
+        operator_email=operator_email,
+        country_code=target_country,
+        target=doc_id,
+        details=update_data,
+        request=request,
+    )
     return MessageResponse(message="文件資訊已更新")
 
 
@@ -659,7 +795,7 @@ async def update_document(
 async def delete_document_file(
     doc_id: str,
     filename: str = Query(..., description="要刪除的附件檔名"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """刪除文件的單一附件"""
@@ -720,7 +856,7 @@ async def delete_document_file(
 async def upload_document_file(
     doc_id: str,
     request: Request,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """追加上傳附件到已有文件（支援多檔案）"""
@@ -813,6 +949,20 @@ async def upload_document_file(
                         blocked_details.append(
                             f"「{pf['filename']}」含 {pf.get('entity_count', 0)} 個 PII（{types_str}）"
                         )
+                    # 寫入 PII 阻擋稽核日誌
+                    audit_log(
+                        action=AuditAction.PII_BLOCKED_UPLOAD,
+                        operator_email=payload.get("sub", ""),
+                        country_code=target_country,
+                        target=doc_id,
+                        result="failure",
+                        error_message=f"PII 偵測阻擋追加上傳：{'; '.join(blocked_details)}",
+                        details={
+                            "doc_id": doc_id,
+                            "pii_files": pii_files,
+                        },
+                        request=request,
+                    )
                     raise HTTPException(
                         status_code=422,
                         detail=f"上傳被拒絕：偵測到個人敏感資訊（PII）。{'; '.join(blocked_details)}。請移除敏感資訊後重新上傳。",
@@ -862,7 +1012,7 @@ async def upload_document_file(
 async def update_doc_auth(
     doc_id: str,
     body: LibraryAuthUpdate,
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_library")),
 ):
     """更新文件授權規則"""
@@ -871,7 +1021,7 @@ async def update_doc_auth(
     if len(body.authorized_users) > 50:
         raise HTTPException(status_code=400, detail="授權使用者不可超過 50 人")
 
-    # super_admin / platform_admin 本身有 access_all_docs 權限，不需要加入 authorized_users
+    # root / admin 本身有 access_all_docs 權限，不需要加入 authorized_users
     # 過濾掉這兩個角色的使用者（需從 DB 查詢角色）
     from core.database import GlobalSessionLocal
     from models.global_models import UserRouteMap
@@ -883,7 +1033,7 @@ async def update_doc_auth(
                 sa_select(UserRouteMap.email, UserRouteMap.role)
                 .where(UserRouteMap.email.in_(filtered_users))
             )
-            admin_emails = {row.email for row in result if row.role in ("super_admin", "platform_admin")}
+            admin_emails = {row.email for row in result if row.role in ("root", "admin")}
         filtered_users = [e for e in filtered_users if e not in admin_emails]
 
     auth_data = {
@@ -911,8 +1061,9 @@ async def update_doc_auth(
 @router.get("/{doc_id}/download")
 async def download_document(
     doc_id: str,
+    request: Request,
     filename: Optional[str] = Query(None, description="指定下載的檔案名稱（多檔案時使用）"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """下載文件（需授權檢查，支援指定檔名下載）"""
@@ -953,6 +1104,14 @@ async def download_document(
     if not file_path:
         raise HTTPException(status_code=404, detail="實體檔案不存在")
 
+    audit_log(
+        action=AuditAction.LIBRARY_DOWNLOAD,
+        operator_email=email,
+        country_code=target_country,
+        target=doc_id,
+        details={"doc_name": doc.name, "filename": target_filename, "library_name": doc.library_name},
+        request=request,
+    )
     return FileResponse(
         path=str(file_path),
         filename=target_filename,
@@ -964,7 +1123,7 @@ async def download_document(
 async def preview_document(
     doc_id: str,
     filename: Optional[str] = Query(None, description="指定預覽的檔案名稱（多檔案時使用）"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """預覽文件（僅支援 PDF，回傳 application/pdf 供 iframe 嵌入）"""

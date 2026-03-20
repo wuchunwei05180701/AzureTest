@@ -132,6 +132,7 @@ from api.library_api import router as library_router
 from api.chat_api import router as chat_router
 from api.country_api import router as country_router
 from api.pii_api import router as pii_router
+from api.audit_api import router as audit_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["認證"])
 app.include_router(user_router, prefix="/api/users", tags=["使用者管理"])
@@ -141,6 +142,7 @@ app.include_router(library_router, prefix="/api/library", tags=["圖書館"])
 app.include_router(chat_router, prefix="/api/chat", tags=["對話"])
 app.include_router(country_router, prefix="/api/countries", tags=["國家"])
 app.include_router(pii_router, prefix="/api/pii", tags=["PII 偵測"])
+app.include_router(audit_router, prefix="/api/audit-logs", tags=["稽核日誌"])
 
 
 # === 健康檢查 ===

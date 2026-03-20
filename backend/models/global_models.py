@@ -20,6 +20,7 @@ class UserRouteMap(GlobalBase):
     country_code = Column(String(5), nullable=False)
     role = Column(String(20), nullable=False, default="user")
     status = Column(String(20), nullable=False, default="active")  # active / inactive / locked
+    avatar_url = Column(Text, nullable=True)  # 使用者頭貼路徑
     last_login_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -73,7 +74,7 @@ class GlobalLibrary(GlobalBase):
 
 
 class GlobalAuditLog(GlobalBase):
-    """脫敏稽核日誌（從各國同步）"""
+    """稽核日誌（記錄所有重要操作）"""
     __tablename__ = "global_audit_log"
 
     log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -82,3 +83,10 @@ class GlobalAuditLog(GlobalBase):
     target = Column(String(255))
     country_code = Column(String(5))
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # 擴充欄位（Phase 7 新增）
+    ip_address = Column(String(45))           # 操作者 IP 位址
+    result = Column(String(20), default="success")  # success / failure
+    error_message = Column(Text)              # 失敗原因
+    details = Column(JSONB)                   # 補充資訊（操作前後的值等）
+    user_agent = Column(Text)                 # 瀏覽器 User-Agent
+    response_time_ms = Column(Integer)        # 操作耗時（毫秒）

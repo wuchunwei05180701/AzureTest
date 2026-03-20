@@ -83,16 +83,38 @@
   gap: 12px;
 }
 
+/* ===== 使用者可點擊區域 ===== */
+.topbar-user-clickable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.topbar-user-clickable:hover {
+  background: #f5f5f5;
+}
+
+.topbar-user-clickable:active {
+  background: #ebebeb;
+}
+
 .topbar-user-info {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  gap: 3px;
 }
 
 .topbar-user-name {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .topbar-user-role {
@@ -106,7 +128,7 @@
 .topbar-avatar {
   background: #f0f0f0;
   color: var(--text-light);
-  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .topbar-country-tag {
@@ -117,4 +139,58 @@
 
 .topbar-country-select .ant-select-selector {
   border-radius: 6px !important;
+}
+
+/* ===== 下拉選單 ===== */
+.topbar-user-dropdown .ant-dropdown-menu {
+  min-width: 180px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+}
+
+.topbar-user-dropdown .ant-dropdown-menu-item {
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.topbar-user-dropdown .ant-dropdown-menu-item-divider {
+  margin: 4px 0;
+}
+
+/* ===== 編輯個人資料 Modal ===== */
+.profile-modal-content {
+  padding: 4px 0;
+}
+
+.profile-avatar-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 8px 0;
+}
+
+.profile-avatar-preview {
+  flex-shrink: 0;
+  border: 2px solid var(--border-color);
+  background: #f5f5f5;
+}
+
+.profile-avatar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.profile-avatar-actions .ant-btn {
+  width: fit-content;
+}
+
+.profile-avatar-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: 2px;
 }

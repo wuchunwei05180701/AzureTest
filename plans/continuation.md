@@ -485,12 +485,70 @@ PII_BLOCK_CHAT=true           # 阻擋含 PII 的聊天訊息（Phase 6.2 新增
 ### 🔲 Phase 6：安全性與稽核
 - [ ] Rate limiting（登入嘗試限制）
 - [ ] HTTPS 強制
-- [ ] 稽核日誌完善（目前僅認證相關操作寫入 GlobalAuditLog，CRUD 操作未記錄）
+- [x] **稽核日誌完善** → 已完成完整版（Phase 7.1）：擴充資料表 + 各 API 補寫 LOG + 前端頁面
 - [ ] JWT refresh token 機制
 - [ ] CORS 設定收緊（目前允許 localhost）
 - [x] **PII Detection & Redaction（個人可識別資訊偵測與遮蔽）** → 已完成基礎實作（Phase 6.1）+ 阻擋上傳模式（Phase 6.2）
 
-### 🔲 Phase 7：測試與優化
+### ✅ Phase 7.1：稽核日誌系統（2026-03-20）
+
+**完整版稽核日誌系統：擴充 `global_audit_log` 資料表 + 各 API 補寫 LOG + 前端查詢頁面。**
+
+**資料庫遷移：**
+- `migrations/add_audit_log_fields.sql` — 新增 6 個欄位至 `global_audit_log`：
+  - `ip_address VARCHAR(45)` — 操作者 IP（支援 IPv6）
+  - `result VARCHAR(20) DEFAULT 'success'` — 操作結果（`success` / `failure`）
+  - `error_message TEXT` — 失敗時的錯誤訊息
+  - `details JSONB` — 操作詳情（如角色變更前後值、文件名稱等）
+  - `user_agent TEXT` — 瀏覽器 User-Agent
+  - `response_time_ms INTEGER` — API 回應時間（毫秒）
+- 新增索引：`(user_email, timestamp)`、`(action, timestamp)`、`(country_code, timestamp)`、`(result, timestamp)`
+
+**後端新增/修改：**
+- `utils/audit_logger.py`（新增）— 統一稽核日誌寫入服務：
+  - `AuditAction` 類別：所有操作類型常數（`auth.login_success`、`user.create`、`library.upload` 等）
+  - `audit_log()` 函式：非阻塞 fire-and-forget（使用 `asyncio.create_task()`），不影響 API 回應速度
+  - `_get_client_ip()` — 從 `X-Forwarded-For` 或 `request.client.host` 取得真實 IP
+  - `AuditTimer` — 計算 API 回應時間的 context manager
+- `models/global_models.py` — `GlobalAuditLog` 新增 6 個 SQLAlchemy 欄位
+- `api/auth_api.py` — `_log_audit()` 改用新的 `audit_log()` 服務
+- `api/user_api.py` — 新增 LOG：建立/編輯/停用啟用/角色變更/刪除使用者
+- `api/agent_api.py` — 新增 LOG：Agent 上架/下架/ACL 變更
+- `api/library_api.py` — 新增 LOG：文件上傳/刪除/編輯/下載
+- `api/announcement_api.py` — 新增 LOG：公告建立/編輯/刪除
+- `api/audit_api.py`（新增）— 稽核日誌查詢 API：
+  - `GET /api/audit-logs` — 分頁列表（支援多維度篩選）
+  - `GET /api/audit-logs/actions` — 取得所有操作類型（供前端下拉選單）
+  - `GET /api/audit-logs/export` — CSV 匯出（`StreamingResponse`，UTF-8 BOM）
+  - 權限：`manage_users` 或 `cross_country_logs`
+  - 國家隔離：`root` 可查所有國家；`admin` 只能查自己國家
+- `main.py` — 註冊 `audit_router`（prefix `/api/audit-logs`）
+
+**前端新增/修改：**
+- `services/api.js` — 新增 `auditAPI`（`list`、`listActions`、`export`）
+- `pages/settings/AuditLogs.jsx`（新增）— 稽核日誌頁面：
+  - 篩選列：Email 搜尋、操作類別、結果、國家（root 限定）、操作對象、日期範圍
+  - 表格欄位：時間、使用者、操作類型（Tag 顏色）、操作對象、國家、結果（Badge）、IP 位址、耗時、詳情按鈕
+  - 詳情 Modal：`Descriptions` 元件顯示所有欄位（含 JSON details 格式化）
+  - CSV 匯出：Blob 下載
+  - 失敗列高亮（紅色背景）
+  - 分頁（含每頁筆數選擇）
+- `pages/settings/AuditLogs.css`（新增）— 頁面樣式（篩選列、失敗列高亮、JSON 詳情區塊）
+- `components/Sidebar.jsx` — 設定子選單加入「稽核日誌」項目（`AuditOutlined` 圖示，需 `manage_users` 或 `cross_country_logs` 權限）
+- `App.jsx` — 新增 `/settings/audit-logs` 路由（需 `manage_users` 權限）
+- `i18n/locales/zh-TW.js` + `en.js` — 新增 `sidebar.auditLogs` 翻譯鍵
+
+**操作類型分類（`AuditAction` 常數）：**
+
+| 類別 | 操作 |
+|------|------|
+| `auth` | `login_success`、`login_failed`、`logout`、`otp_request` |
+| `user` | `create`、`update`、`delete`、`status_change`、`role_change` |
+| `agent` | `publish`、`unpublish`、`acl_update` |
+| `library` | `upload`、`delete`、`update`、`download` |
+| `announcement` | `create`、`update`、`delete` |
+
+### 🔲 Phase 8：測試與優化
 - [ ] 前端單元測試
 - [ ] 後端 API 測試
 - [ ] 效能優化（code splitting、lazy loading — 目前 App.jsx 所有頁面直接 import，未使用 React.lazy）

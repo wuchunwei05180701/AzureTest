@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { authAPI, getToken, setToken, removeToken } from '../services/api';
+import { authAPI, getToken, setToken, removeToken, BASE_PREFIX } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -122,6 +122,27 @@ export const AuthProvider = ({ children }) => {
     [user]
   );
 
+  // 更新個人資料（姓名）
+  const updateProfile = useCallback(async (data) => {
+    await authAPI.updateProfile(data);
+    // 更新本地 user 狀態
+    setUser((prev) => prev ? { ...prev, ...data } : prev);
+  }, []);
+
+  // 上傳頭貼
+  const uploadAvatar = useCallback(async (formData) => {
+    const response = await authAPI.uploadAvatar(formData);
+    // 重新取得最新使用者資訊（含新的 avatar_url）
+    await fetchUser();
+    return response;
+  }, [fetchUser]);
+
+  // 刪除頭貼
+  const deleteAvatar = useCallback(async () => {
+    await authAPI.deleteAvatar();
+    setUser((prev) => prev ? { ...prev, avatar_url: null } : prev);
+  }, []);
+
   const value = {
     user,
     loading,
@@ -130,6 +151,9 @@ export const AuthProvider = ({ children }) => {
     logout,
     hasPermission,
     refreshUser,
+    updateProfile,
+    uploadAvatar,
+    deleteAvatar,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

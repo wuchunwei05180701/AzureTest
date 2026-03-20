@@ -17,6 +17,7 @@ import AnnouncementSettings from './pages/settings/AnnouncementSettings';
 import AgentPermissions from './pages/settings/AgentPermissions';
 import LibrarySettings from './pages/settings/LibrarySettings';
 import UserManagement from './pages/settings/UserManagement';
+import AuditLogs from './pages/settings/AuditLogs';
 
 const App = () => {
   return (
@@ -55,6 +56,9 @@ const App = () => {
                       </Route>
                       <Route element={<ProtectedRoute requiredPermission="manage_users" />}>
                         <Route path="settings/users" element={<UserManagement />} />
+                      </Route>
+                      <Route element={<ProtectedRoute requiredPermission="manage_users" />}>
+                        <Route path="settings/audit-logs" element={<AuditLogs />} />
                       </Route>
 
                       <Route path="*" element={<Navigate to="/" replace />} />

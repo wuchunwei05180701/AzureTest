@@ -68,6 +68,29 @@ const zhTW = {
   topbar: {
     selectCountry: '選擇國家',
     logout: '登出',
+    editProfile: '編輯個人資料',
+    switchLanguage: '切換語言',
+    languageZhTW: '繁體中文',
+    languageEn: 'English',
+    profileModalTitle: '編輯個人資料',
+    nameLabel: '顯示名稱',
+    namePlaceholder: '請輸入顯示名稱',
+    nameRequired: '請輸入顯示名稱',
+    emailLabel: 'Email',
+    avatarLabel: '頭貼',
+    uploadAvatar: '上傳頭貼',
+    changeAvatar: '更換頭貼',
+    deleteAvatar: '刪除頭貼',
+    avatarHint: '支援 PNG、JPG、GIF、WebP，最大 5MB',
+    avatarSizeError: '圖片大小超過 5MB 上限',
+    avatarTypeError: '僅支援 PNG、JPG、GIF、WebP 格式',
+    profileSaved: '個人資料已更新',
+    profileSaveFailed: '更新失敗，請稍後再試',
+    avatarUploaded: '頭貼已更新',
+    avatarUploadFailed: '頭貼上傳失敗',
+    avatarDeleted: '頭貼已刪除',
+    avatarDeleteFailed: '刪除頭貼失敗',
+    deleteAvatarConfirm: '確定要刪除頭貼嗎？',
   },
 
   // ===== Sidebar =====
@@ -82,6 +105,7 @@ const zhTW = {
     agentPermissions: 'Agent 權限設定',
     librarySettings: '圖書館設定',
     userManagement: '使用者管理',
+    auditLogs: '稽核日誌',
   },
 
   // ===== 首頁 =====
@@ -358,6 +382,18 @@ const zhTW = {
     addNewLibrary: '新增館',
     addNewLibraryHint: '輸入新的館名以建立空館，之後可在「文件管理」中上傳文件。',
     noCatalogs: '尚無館名，請點擊「新增館」建立',
+    // 編輯館
+    editLibrary: '編輯館',
+    editLibraryTitle: '編輯館 - {name}',
+    editLibraryNameLabel: '館名',
+    editLibraryNamePlaceholder: '請輸入館名',
+    editLibraryNameRequired: '請輸入館名',
+    editLibraryNameExists: '此館名已存在',
+    editLibrarySaved: '館「{name}」已更新',
+    editLibrarySaveFailed: '更新館失敗',
+    editLibraryDocsTitle: '館內文件',
+    editLibraryNoDocuments: '此館目前沒有文件',
+    editLibraryDeleteDocConfirm: '確定要刪除文件「{name}」嗎？',
   },
 
   // ===== 使用者管理 =====
@@ -418,10 +454,8 @@ const zhTW = {
 
   // ===== 角色名稱 =====
   roles: {
-    super_admin: '台灣最高管理者',
-    platform_admin: '平台管理者',
-    user_manager: '用戶管理者',
-    library_manager: '圖書館管理者',
+    root: '最高管理者',
+    admin: '平台管理者',
     user: '一般使用者',
   },
 

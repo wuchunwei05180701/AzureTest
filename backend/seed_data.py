@@ -116,12 +116,12 @@ def seed_users(session: Session):
     from models.global_models import UserRouteMap
 
     users = [
-        {"email": "super@ctbc.com", "name": "Super Admin", "department": "it", "country_code": "TW", "role": "super_admin", "status": "active"},
-        {"email": "tina@ctbc.com", "name": "Tina", "department": "planning", "country_code": "TW", "role": "platform_admin", "status": "active"},
-        {"email": "john@ctbc.com", "name": "John", "department": "rd", "country_code": "TW", "role": "user_manager", "status": "active"},
-        {"email": "alice@ctbc.com", "name": "Alice", "department": "marketing", "country_code": "TW", "role": "library_manager", "status": "active"},
+        {"email": "super@ctbc.com", "name": "Super Admin", "department": "it", "country_code": "TW", "role": "root", "status": "active"},
+        {"email": "tina@ctbc.com", "name": "Tina", "department": "planning", "country_code": "TW", "role": "admin", "status": "active"},
+        {"email": "john@ctbc.com", "name": "John", "department": "rd", "country_code": "TW", "role": "admin", "status": "active"},
+        {"email": "alice@ctbc.com", "name": "Alice", "department": "marketing", "country_code": "TW", "role": "admin", "status": "active"},
         {"email": "bob@ctbc.com.sg", "name": "Bob", "department": "finance", "country_code": "SG", "role": "user", "status": "active"},
-        {"email": "admin.sg@ctbc.com", "name": "SG Admin", "department": "management", "country_code": "SG", "role": "platform_admin", "status": "active"},
+        {"email": "admin.sg@ctbc.com", "name": "SG Admin", "department": "management", "country_code": "SG", "role": "admin", "status": "active"},
         {"email": "carol@ctbc.com", "name": "Carol", "department": "hr", "country_code": "TW", "role": "user", "status": "active"},
         {"email": "david@ctbc.co.jp", "name": "David", "department": "rd", "country_code": "JP", "role": "user", "status": "active"},
         {"email": "eva@ctbc.com", "name": "Eva", "department": "planning", "country_code": "TW", "role": "user", "status": "inactive"},
@@ -232,7 +232,7 @@ def seed_agent_acl(session: Session, agent_ids: list):
     print("\n🔐 正在插入 Agent ACL 資料...")
     from models.global_models import AgentACL
 
-    all_roles = ["user", "user_manager", "library_manager", "platform_admin", "super_admin"]
+    all_roles = ["user", "admin", "root"]
 
     for agent_id in agent_ids:
         acl = AgentACL(
@@ -327,7 +327,7 @@ def seed_local_library(session: Session, country_code: str):
     now = datetime.now(timezone.utc)
     total = 0
     catalog_count = 0
-    all_roles = ["user", "user_manager", "library_manager", "platform_admin", "super_admin"]
+    all_roles = ["user", "admin", "root"]
 
     # 先建立 catalog 記錄
     for lib in libraries:

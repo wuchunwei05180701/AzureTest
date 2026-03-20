@@ -24,6 +24,11 @@ class UserInfo(BaseModel):
     department: Optional[str] = None
     country: str
     permissions: List[str] = []
+    avatar_url: Optional[str] = None
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
 
 
 class TokenResponse(BaseModel):
@@ -127,6 +132,11 @@ class AnnouncementResponse(BaseModel):
 # ===== 圖書館 =====
 class LibraryCatalogCreate(BaseModel):
     library_name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+
+
+class LibraryCatalogUpdate(BaseModel):
+    library_name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
 
 

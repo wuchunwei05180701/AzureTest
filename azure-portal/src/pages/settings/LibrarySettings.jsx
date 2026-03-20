@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Upload, Popconfirm, Tag, message, Space, Spin, Divider, Tooltip, Segmented, Dropdown, Empty, Checkbox } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, Upload, Popconfirm, Tag, message, Space, Spin, Divider, Tooltip, Segmented, Dropdown, Empty, Checkbox, Switch, Alert } from 'antd';
 import { PlusOutlined, DeleteOutlined, UploadOutlined, DatabaseOutlined, UserOutlined, GlobalOutlined, FolderAddOutlined, FolderOutlined, EditOutlined, PaperClipOutlined, CloudUploadOutlined, PictureOutlined, InboxOutlined, FileTextOutlined, SearchOutlined, MoreOutlined, HomeOutlined } from '@ant-design/icons';
 import { libraryAPI, piiAPI, userAPI } from '../../services/api';
 import { adaptLibraryDocs, adaptCatalogs } from '../../utils/adapters';
@@ -58,8 +58,19 @@ const LibrarySettings = () => {
   const [existingImageUrl, setExistingImageUrl] = useState(null);
   const [piiScanning, setPiiScanning] = useState(false);
   const [permSearch, setPermSearch] = useState('');
+  const [permRestricted, setPermRestricted] = useState(false); // 是否啟用存取限制
   const [realUserList, setRealUserList] = useState([]);
   const [userListLoading, setUserListLoading] = useState(false);
+  // 編輯館 Modal 狀態
+  const [editCatalogModal, setEditCatalogModal] = useState(null); // 目前編輯的 catalog
+  const [editCatalogName, setEditCatalogName] = useState('');
+  const [editCatalogLoading, setEditCatalogLoading] = useState(false);
+  const [editCatalogImageFileList, setEditCatalogImageFileList] = useState([]);
+  const [editCatalogImagePreview, setEditCatalogImagePreview] = useState(null);
+  const [editCatalogImageUploading, setEditCatalogImageUploading] = useState(false);
+  const [editCatalogExistingImageUrl, setEditCatalogExistingImageUrl] = useState(null);
+  const [editCatalogDocs, setEditCatalogDocs] = useState([]);
+  const [editCatalogDocsLoading, setEditCatalogDocsLoading] = useState(false);
 
   const handlePiiScan = async (newFileList, setListFn) => {
     if (!newFileList || newFileList.length === 0) return true;
@@ -198,6 +209,11 @@ const LibrarySettings = () => {
   };
 
   const handleUpload = async () => {
+    // 如果 PII 掃描還在進行中，阻止上傳
+    if (piiScanning) {
+      message.warning(t('pii.scanningFiles'));
+      return;
+    }
     try {
       const v = await form.validateFields();
       setUploadLoading(true);
@@ -234,6 +250,11 @@ const LibrarySettings = () => {
 
   const handleEditSave = async () => {
     if (!editModal) return;
+    // 如果 PII 掃描還在進行中，阻止儲存
+    if (piiScanning) {
+      message.warning(t('pii.scanningFiles'));
+      return;
+    }
     try {
       const v = await editForm.validateFields();
       setEditLoading(true);
@@ -274,28 +295,59 @@ const LibrarySettings = () => {
   };
 
   const openPermModal = async (doc) => {
-    const existing = doc.auth_rules?.authorized_users || [];
-    setPermUsers(existing);
-    setPermModal(doc);
+    // 先取得最新資料，再開啟 modal（避免 async 覆蓋使用者操作）
     setUserListLoading(true);
     try {
-      const res = await userAPI.list(isSuperAdmin ? { country: effectiveCountry } : {});
-      const users = Array.isArray(res.data) ? res.data : (res.data?.users || res.data?.items || []);
-      setRealUserList(users.length > 0 ? users : mockUserList);
+      // 同時取得最新 doc 資料（確保 auth_rules 是最新的）和使用者列表
+      const [docsRes, usersRes] = await Promise.allSettled([
+        libraryAPI.listAll(isSuperAdmin ? effectiveCountry : undefined),
+        userAPI.list(isSuperAdmin ? { country: effectiveCountry } : {}),
+      ]);
+
+      // 從最新資料中找到對應的 doc，取得最新的 auth_rules
+      let existing = doc.auth_rules?.authorized_users || [];
+      if (docsRes.status === 'fulfilled') {
+        const latestDocs = Array.isArray(docsRes.value.data) ? docsRes.value.data : [];
+        const latestDoc = latestDocs.find((d) => d.doc_id === doc.id);
+        existing = latestDoc?.auth_rules?.authorized_users || [];
+      }
+      setPermUsers(existing);
+      setPermRestricted(existing.length > 0);
+
+      // 設定使用者列表
+      if (usersRes.status === 'fulfilled') {
+        const users = Array.isArray(usersRes.value.data) ? usersRes.value.data : (usersRes.value.data?.users || usersRes.value.data?.items || []);
+        setRealUserList(users.length > 0 ? users : mockUserList);
+      } else {
+        setRealUserList(mockUserList);
+      }
     } catch {
+      const existing = doc.auth_rules?.authorized_users || [];
+      setPermUsers(existing);
+      setPermRestricted(existing.length > 0);
       setRealUserList(mockUserList);
     } finally {
       setUserListLoading(false);
+      // 資料準備好後才開啟 modal
+      setPermModal(doc);
     }
   };
 
   const handlePermSave = async () => {
     if (!permModal) return;
+    // 若開啟限制但未選任何人，阻止儲存
+    if (permRestricted && permUsers.length === 0) {
+      message.warning('請至少選擇一位使用者，或關閉存取限制開關');
+      return;
+    }
+    // 若關閉限制開關，送空陣列 = 公開給所有人
+    const usersToSave = permRestricted ? permUsers : [];
     try {
-      await libraryAPI.updateAuth(permModal.id, { authorized_roles: [], authorized_users: permUsers, exception_list: [] });
+      await libraryAPI.updateAuth(permModal.id, { authorized_roles: [], authorized_users: usersToSave, exception_list: [] });
       message.success(t('librarySettings.permissionUpdated'));
       setPermModal(null);
       setPermSearch('');
+      setPermRestricted(false);
       fetchLibrary(effectiveCountry);
     } catch (e) {
       const detail = e.response?.data?.detail;
@@ -312,6 +364,139 @@ const LibrarySettings = () => {
       message.success(t('librarySettings.libraryDeleted', { name }));
       fetchLibrary(effectiveCountry);
     } catch (e) { message.error(t('librarySettings.deleteFailed') + ': ' + (e.response?.data?.detail || e.message)); }
+  };
+
+  // ===== 編輯館 Modal =====
+  const handleOpenEditCatalog = async (cat) => {
+    setEditCatalogModal(cat);
+    setEditCatalogName(cat.name);
+    setEditCatalogImageFileList([]);
+    setEditCatalogImagePreview(null);
+    setEditCatalogExistingImageUrl(null);
+    setEditCatalogDocs([]);
+
+    // 載入封面圖片
+    if (cat.imageUrl) {
+      try {
+        const r = await libraryAPI.getCatalogImage(cat.catalogId, isSuperAdmin ? effectiveCountry : undefined);
+        setEditCatalogExistingImageUrl(URL.createObjectURL(r.data));
+      } catch { /* ignore */ }
+    }
+
+    // 載入館內文件
+    setEditCatalogDocsLoading(true);
+    try {
+      const docsRes = await libraryAPI.listAll(isSuperAdmin ? effectiveCountry : undefined);
+      const docs = Array.isArray(docsRes.data) ? docsRes.data : [];
+      setEditCatalogDocs(docs.filter((d) => d.library_name === cat.name));
+    } catch {
+      setEditCatalogDocs(
+        libraries.find((l) => l.name === cat.name)?.documents?.map((d) => ({
+          doc_id: d.id,
+          name: d.name,
+          library_name: cat.name,
+        })) || []
+      );
+    } finally {
+      setEditCatalogDocsLoading(false);
+    }
+  };
+
+  const handleCloseEditCatalog = () => {
+    setEditCatalogModal(null);
+    setEditCatalogName('');
+    setEditCatalogImageFileList([]);
+    setEditCatalogImagePreview(null);
+    if (editCatalogExistingImageUrl) {
+      URL.revokeObjectURL(editCatalogExistingImageUrl);
+      setEditCatalogExistingImageUrl(null);
+    }
+    setEditCatalogDocs([]);
+  };
+
+  const handleSaveEditCatalog = async () => {
+    if (!editCatalogModal) return;
+    const newName = editCatalogName.trim();
+    if (!newName) { message.warning(t('librarySettings.editLibraryNameRequired')); return; }
+    if (newName !== editCatalogModal.name && catalogs.some((c) => c.name === newName && c.catalogId !== editCatalogModal.catalogId)) {
+      message.warning(t('librarySettings.editLibraryNameExists'));
+      return;
+    }
+    setEditCatalogLoading(true);
+    try {
+      const updateData = {};
+      if (newName !== editCatalogModal.name) updateData.library_name = newName;
+      if (Object.keys(updateData).length > 0) {
+        await libraryAPI.updateCatalog(editCatalogModal.catalogId, updateData, isSuperAdmin ? effectiveCountry : undefined);
+      }
+      // 上傳新封面圖片
+      if (editCatalogImageFileList.length > 0) {
+        const fd = new FormData();
+        fd.append('file', editCatalogImageFileList[0].originFileObj);
+        await libraryAPI.uploadCatalogImage(editCatalogModal.catalogId, fd, isSuperAdmin ? effectiveCountry : undefined);
+      }
+      message.success(t('librarySettings.editLibrarySaved', { name: newName }));
+      handleCloseEditCatalog();
+      fetchLibrary(effectiveCountry);
+    } catch (e) {
+      message.error(t('librarySettings.editLibrarySaveFailed') + ': ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setEditCatalogLoading(false);
+    }
+  };
+
+  const handleEditCatalogUploadImage = async () => {
+    if (!editCatalogModal || editCatalogImageFileList.length === 0) return;
+    setEditCatalogImageUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', editCatalogImageFileList[0].originFileObj);
+      await libraryAPI.uploadCatalogImage(editCatalogModal.catalogId, fd, isSuperAdmin ? effectiveCountry : undefined);
+      message.success(t('librarySettings.coverImageUploaded'));
+      setEditCatalogImageFileList([]);
+      setEditCatalogImagePreview(null);
+      // 重新載入圖片
+      try {
+        const r = await libraryAPI.getCatalogImage(editCatalogModal.catalogId, isSuperAdmin ? effectiveCountry : undefined);
+        if (editCatalogExistingImageUrl) URL.revokeObjectURL(editCatalogExistingImageUrl);
+        setEditCatalogExistingImageUrl(URL.createObjectURL(r.data));
+        // 同步更新 editCatalogModal 的 imageUrl 標記
+        setEditCatalogModal((prev) => prev ? { ...prev, imageUrl: 'updated' } : prev);
+      } catch { /* ignore */ }
+      fetchLibrary(effectiveCountry);
+    } catch (e) {
+      message.error(t('librarySettings.coverImageUploadFailed') + ': ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setEditCatalogImageUploading(false);
+    }
+  };
+
+  const handleEditCatalogDeleteImage = async () => {
+    if (!editCatalogModal) return;
+    try {
+      await libraryAPI.deleteCatalogImage(editCatalogModal.catalogId, isSuperAdmin ? effectiveCountry : undefined);
+      message.success(t('librarySettings.coverImageDeleted'));
+      if (editCatalogExistingImageUrl) {
+        URL.revokeObjectURL(editCatalogExistingImageUrl);
+        setEditCatalogExistingImageUrl(null);
+      }
+      setEditCatalogModal((prev) => prev ? { ...prev, imageUrl: null } : prev);
+      fetchLibrary(effectiveCountry);
+    } catch (e) {
+      message.error(t('librarySettings.coverImageDeleteFailed') + ': ' + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const handleEditCatalogDeleteDoc = async (docId, docName) => {
+    try {
+      if (isSuperAdmin && effectiveCountry) await libraryAPI.delete(docId, { params: { country: effectiveCountry } });
+      else await libraryAPI.delete(docId);
+      message.success(t('librarySettings.documentDeleted'));
+      setEditCatalogDocs((prev) => prev.filter((d) => d.doc_id !== docId));
+      fetchLibrary(effectiveCountry);
+    } catch (e) {
+      message.error(t('librarySettings.deleteFailed') + ': ' + (e.response?.data?.detail || e.message));
+    }
   };
 
   const handleOpenImageModal = async (cat) => {
@@ -521,12 +706,12 @@ const LibrarySettings = () => {
                         <div className="catalog-card-actions">
                           <Button
                             type="text"
-                            icon={<PictureOutlined />}
-                            onClick={() => handleOpenImageModal(stat)}
+                            icon={<EditOutlined />}
+                            onClick={() => handleOpenEditCatalog(stat)}
                             size="small"
-                            style={{ color: stat.imageUrl ? 'var(--primary-color)' : '#999' }}
+                            style={{ color: 'var(--primary-color)' }}
                           >
-                            {stat.imageUrl ? t('librarySettings.changeImage') : t('librarySettings.uploadImage')}
+                            {t('librarySettings.editLibrary')}
                           </Button>
                           {stat.docCount === 0 ? (
                             <Popconfirm
@@ -635,9 +820,13 @@ const LibrarySettings = () => {
         onCancel={() => { setUploadModal(false); form.resetFields(); setNewLibraryName(''); }}
         onOk={handleUpload}
         confirmLoading={uploadLoading}
-        okText={t('common.upload')}
+        okText={piiScanning ? t('pii.scanningFiles') : t('common.upload')}
         cancelText={t('common.cancel')}
-        okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
+        okButtonProps={{
+          style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' },
+          disabled: piiScanning,
+          loading: piiScanning,
+        }}
       >
         <Form form={form} layout="vertical">
           {isSuperAdmin && (
@@ -719,9 +908,13 @@ const LibrarySettings = () => {
         onCancel={() => { setEditModal(null); setEditFileList([]); editForm.resetFields(); }}
         onOk={handleEditSave}
         confirmLoading={editLoading}
-        okText={t('common.save')}
+        okText={piiScanning ? t('pii.scanningFiles') : t('common.save')}
         cancelText={t('common.cancel')}
-        okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
+        okButtonProps={{
+          style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' },
+          disabled: piiScanning,
+          loading: piiScanning,
+        }}
         width={560}
       >
         <Form form={editForm} layout="vertical">
@@ -786,56 +979,87 @@ const LibrarySettings = () => {
       <Modal
         title={t('librarySettings.permissionTitle', { name: permModal?.name })}
         open={!!permModal}
-        onCancel={() => { setPermModal(null); setPermSearch(''); }}
+        onCancel={() => { setPermModal(null); setPermSearch(''); setPermRestricted(false); }}
         onOk={() => { handlePermSave(); setPermSearch(''); }}
         okText={t('common.save')}
         cancelText={t('common.cancel')}
         okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
       >
-        <p style={{ marginBottom: 12, color: '#666' }}>{t('librarySettings.permissionHint')}</p>
-        <Input
-          prefix={<SearchOutlined style={{ color: '#bbb' }} />}
-          placeholder={t('librarySettings.selectUsers')}
-          value={permSearch}
-          onChange={(e) => setPermSearch(e.target.value)}
-          allowClear
-          style={{ marginBottom: 8 }}
-        />
-        <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 6, padding: '4px 0' }}>
-          {userListLoading ? (
-            <div style={{ textAlign: 'center', padding: '20px 0' }}><Spin size="small" /></div>
-          ) : realUserList
-            .filter((u) => u.role !== 'super_admin' && u.role !== 'platform_admin')
-            .filter((u) => {
-              if (!permSearch.trim()) return true;
-              const kw = permSearch.toLowerCase();
-              return u.name?.toLowerCase().includes(kw) || u.email?.toLowerCase().includes(kw) || u.department?.toLowerCase().includes(kw);
-            })
-            .map((u) => (
-              <label
-                key={u.email}
-                style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', borderRadius: 4, userSelect: 'none' }}
-              >
-                <Checkbox
-                  checked={permUsers.includes(u.email)}
-                  style={{ marginRight: 10 }}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setPermUsers((prev) =>
-                      checked ? [...prev, u.email] : prev.filter((email) => email !== u.email)
-                    );
-                  }}
-                />
-                <span style={{ flex: 1 }}>{u.name || u.email}</span>
-                <span style={{ fontSize: 12, color: '#999', marginRight: 8 }}>{u.email}</span>
-                <Tag style={{ fontSize: 11 }}>{u.department || ''}</Tag>
-              </label>
-            ))}
-        </div>
-        {permUsers.length > 0 && (
-          <div style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
-            已選擇 {permUsers.length} 人
+        {/* 啟用存取限制開關 */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '12px 16px', background: '#f5f5f5', borderRadius: 8 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>啟用存取限制</div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+              {permRestricted ? '僅限以下勾選的使用者可存取此文件' : '所有人均可存取此文件（公開）'}
+            </div>
           </div>
+          <Switch
+            checked={permRestricted}
+            onChange={(checked) => {
+              setPermRestricted(checked);
+              if (!checked) setPermUsers([]); // 關閉時清空選擇
+            }}
+            checkedChildren="限定"
+            unCheckedChildren="公開"
+          />
+        </div>
+
+        {/* 僅在啟用限制時顯示使用者清單 */}
+        {permRestricted && (
+          <>
+            {permUsers.length === 0 && (
+              <Alert
+                message="請至少選擇一位使用者，否則儲存後將視為公開"
+                type="warning"
+                showIcon
+                style={{ marginBottom: 8 }}
+              />
+            )}
+            <Input
+              prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+              placeholder={t('librarySettings.selectUsers')}
+              value={permSearch}
+              onChange={(e) => setPermSearch(e.target.value)}
+              allowClear
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 6, padding: '4px 0' }}>
+              {userListLoading ? (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}><Spin size="small" /></div>
+              ) : realUserList
+                .filter((u) => u.role !== 'root')
+                .filter((u) => {
+                  if (!permSearch.trim()) return true;
+                  const kw = permSearch.toLowerCase();
+                  return u.name?.toLowerCase().includes(kw) || u.email?.toLowerCase().includes(kw) || u.department?.toLowerCase().includes(kw);
+                })
+                .map((u) => (
+                  <label
+                    key={u.email}
+                    style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', borderRadius: 4, userSelect: 'none' }}
+                  >
+                    <Checkbox
+                      checked={permUsers.includes(u.email)}
+                      style={{ marginRight: 10 }}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setPermUsers((prev) =>
+                          checked ? [...prev, u.email] : prev.filter((email) => email !== u.email)
+                        );
+                      }}
+                    />
+                    <span style={{ flex: 1 }}>{u.name || u.email}</span>
+                    <span style={{ fontSize: 12, color: '#999', marginRight: 8 }}>{u.email}</span>
+                    <Tag style={{ fontSize: 11 }}>{u.department || ''}</Tag>
+                  </label>
+                ))}
+            </div>
+            {permUsers.length > 0 && (
+              <div style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
+                已選擇 {permUsers.length} 人
+              </div>
+            )}
+          </>
         )}
       </Modal>
 
@@ -895,6 +1119,164 @@ const LibrarySettings = () => {
             <img src={imagePreview} alt="preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, border: '1px solid #d9d9d9', objectFit: 'contain' }} />
           </div>
         )}
+      </Modal>
+
+      {/* Edit Catalog Modal */}
+      <Modal
+        title={
+          <span>
+            <EditOutlined style={{ marginRight: 8 }} />
+            {t('librarySettings.editLibraryTitle', { name: editCatalogModal?.name })}
+          </span>
+        }
+        open={!!editCatalogModal}
+        onCancel={handleCloseEditCatalog}
+        onOk={handleSaveEditCatalog}
+        confirmLoading={editCatalogLoading}
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
+        okButtonProps={{ style: { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } }}
+        width={600}
+      >
+        {/* 館名編輯 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
+            <FolderOutlined style={{ marginRight: 6, color: 'var(--primary-color)' }} />
+            {t('librarySettings.editLibraryNameLabel')}
+          </div>
+          <Input
+            value={editCatalogName}
+            onChange={(e) => setEditCatalogName(e.target.value)}
+            placeholder={t('librarySettings.editLibraryNamePlaceholder')}
+            size="large"
+            prefix={<FolderOutlined style={{ color: '#bbb' }} />}
+          />
+        </div>
+
+        <Divider style={{ margin: '16px 0' }} />
+
+        {/* 封面圖片管理 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
+            <PictureOutlined style={{ marginRight: 6, color: 'var(--primary-color)' }} />
+            {t('librarySettings.coverImage')}
+          </div>
+
+          {editCatalogExistingImageUrl && !editCatalogImagePreview && (
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <img
+                src={editCatalogExistingImageUrl}
+                alt="cover"
+                style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 6, border: '1px solid #d9d9d9' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>{t('librarySettings.currentCoverImage')}</div>
+                <Popconfirm
+                  title={t('librarySettings.deleteCoverImageConfirm')}
+                  onConfirm={handleEditCatalogDeleteImage}
+                  okText={t('common.confirm')}
+                  cancelText={t('common.cancel')}
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button size="small" danger icon={<DeleteOutlined />}>{t('librarySettings.deleteImage')}</Button>
+                </Popconfirm>
+              </div>
+            </div>
+          )}
+
+          <Upload
+            accept=".png,.jpg,.jpeg"
+            maxCount={1}
+            fileList={editCatalogImageFileList}
+            beforeUpload={(file) => {
+              if (file.size > 5 * 1024 * 1024) {
+                message.error(t('librarySettings.imageSizeExceeded'));
+                return Upload.LIST_IGNORE;
+              }
+              const reader = new FileReader();
+              reader.onload = (e) => setEditCatalogImagePreview(e.target.result);
+              reader.readAsDataURL(file);
+              return false;
+            }}
+            onChange={({ fileList }) => {
+              setEditCatalogImageFileList(fileList.slice(-1));
+              if (fileList.length === 0) setEditCatalogImagePreview(null);
+            }}
+            onRemove={() => setEditCatalogImagePreview(null)}
+          >
+            <Button icon={<PictureOutlined />} size="small">
+              {editCatalogExistingImageUrl ? t('librarySettings.changeImage') : t('librarySettings.uploadImage')}
+            </Button>
+          </Upload>
+
+          {editCatalogImagePreview && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img
+                src={editCatalogImagePreview}
+                alt="preview"
+                style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 6, border: '1px solid #d9d9d9' }}
+              />
+              <div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{t('librarySettings.imagePreview')}</div>
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={editCatalogImageUploading}
+                  onClick={handleEditCatalogUploadImage}
+                  style={{ background: 'var(--primary-color)', borderColor: 'var(--primary-color)' }}
+                >
+                  {t('common.upload')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <Divider style={{ margin: '16px 0' }} />
+
+        {/* 館內文件列表 */}
+        <div>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
+            <FileTextOutlined style={{ marginRight: 6, color: 'var(--primary-color)' }} />
+            {t('librarySettings.editLibraryDocsTitle')}
+            <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>{editCatalogDocs.length}</Tag>
+          </div>
+
+          {editCatalogDocsLoading ? (
+            <div style={{ textAlign: 'center', padding: '20px 0' }}><Spin size="small" /></div>
+          ) : editCatalogDocs.length === 0 ? (
+            <Empty description={t('librarySettings.editLibraryNoDocuments')} style={{ padding: '20px 0' }} />
+          ) : (
+            <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+              {editCatalogDocs.map((doc) => (
+                <div
+                  key={doc.doc_id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #f5f5f5',
+                    gap: 8,
+                  }}
+                >
+                  <FileTextOutlined style={{ color: '#1890ff', flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                    {doc.name}
+                  </span>
+                  <Popconfirm
+                    title={t('librarySettings.editLibraryDeleteDocConfirm', { name: doc.name })}
+                    onConfirm={() => handleEditCatalogDeleteDoc(doc.doc_id, doc.name)}
+                    okText={t('librarySettings.confirmDelete')}
+                    cancelText={t('common.cancel')}
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                  </Popconfirm>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

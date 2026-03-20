@@ -68,6 +68,29 @@ const en = {
   topbar: {
     selectCountry: 'Select Country',
     logout: 'Logout',
+    editProfile: 'Edit Profile',
+    switchLanguage: 'Language',
+    languageZhTW: '繁體中文',
+    languageEn: 'English',
+    profileModalTitle: 'Edit Profile',
+    nameLabel: 'Display Name',
+    namePlaceholder: 'Enter display name',
+    nameRequired: 'Please enter display name',
+    emailLabel: 'Email',
+    avatarLabel: 'Avatar',
+    uploadAvatar: 'Upload Avatar',
+    changeAvatar: 'Change Avatar',
+    deleteAvatar: 'Delete Avatar',
+    avatarHint: 'Supports PNG, JPG, GIF, WebP. Max 5MB.',
+    avatarSizeError: 'Image size exceeds 5MB limit',
+    avatarTypeError: 'Only PNG, JPG, GIF, WebP formats are supported',
+    profileSaved: 'Profile updated',
+    profileSaveFailed: 'Update failed, please try again',
+    avatarUploaded: 'Avatar updated',
+    avatarUploadFailed: 'Failed to upload avatar',
+    avatarDeleted: 'Avatar deleted',
+    avatarDeleteFailed: 'Failed to delete avatar',
+    deleteAvatarConfirm: 'Are you sure you want to delete your avatar?',
   },
 
   // ===== Sidebar =====
@@ -82,6 +105,7 @@ const en = {
     agentPermissions: 'Agent Permissions',
     librarySettings: 'Library Settings',
     userManagement: 'User Management',
+    auditLogs: 'Audit Logs',
   },
 
   // ===== Home =====
@@ -358,6 +382,18 @@ const en = {
     addNewLibrary: 'Add Library',
     addNewLibraryHint: 'Enter a new library name to create an empty library. You can upload documents later in "Document Management".',
     noCatalogs: 'No libraries yet. Click "Add Library" to create one.',
+    // Edit library
+    editLibrary: 'Edit Library',
+    editLibraryTitle: 'Edit Library - {name}',
+    editLibraryNameLabel: 'Library Name',
+    editLibraryNamePlaceholder: 'Enter library name',
+    editLibraryNameRequired: 'Please enter a library name',
+    editLibraryNameExists: 'This library name already exists',
+    editLibrarySaved: 'Library "{name}" updated',
+    editLibrarySaveFailed: 'Failed to update library',
+    editLibraryDocsTitle: 'Documents in this library',
+    editLibraryNoDocuments: 'No documents in this library',
+    editLibraryDeleteDocConfirm: 'Are you sure you want to delete document "{name}"?',
   },
 
   // ===== User Management =====
@@ -418,10 +454,8 @@ const en = {
 
   // ===== Roles =====
   roles: {
-    super_admin: 'Superuser (Root)',
-    platform_admin: 'Administrator',
-    user_manager: 'User Manager',
-    library_manager: 'Library Manager',
+    root: 'Super Admin',
+    admin: 'Admin',
     user: 'User',
   },
 

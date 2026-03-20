@@ -1,7 +1,7 @@
 """
 公告 API：CRUD + 發布/取消發布
 公告存在 Local DB（各國 PostgreSQL），國家隔離
-super_admin 可跨國查看（透過 ?country=XX 參數）
+root 可跨國查看（透過 ?country=XX 參數）
 """
 import logging
 from typing import List, Optional
@@ -24,6 +24,7 @@ from models.schemas import (
 )
 from services.storage_service import storage_service
 from services.pii_service import get_pii_service
+from utils.audit_logger import audit_log, AuditAction
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,14 +33,14 @@ router = APIRouter()
 def _resolve_country(payload: dict, query_country: Optional[str] = None) -> str:
     """
     解析要查詢的國家：
-    - super_admin 可透過 query param 指定國家
+    - root 可透過 query param 指定國家
     - 其他角色只能查自己的國家
     """
     user_country = payload.get("country", "TW")
     role = payload.get("role", "user")
 
     if query_country and query_country != user_country:
-        if role != "super_admin":
+        if role != "root":
             raise HTTPException(status_code=403, detail="只有最高管理者可以跨國查看")
         if query_country not in settings.LOCAL_DB_CONFIG:
             raise HTTPException(status_code=400, detail=f"國家 [{query_country}] 不存在")
@@ -50,7 +51,7 @@ def _resolve_country(payload: dict, query_country: Optional[str] = None) -> str:
 
 @router.get("", response_model=List[AnnouncementResponse])
 async def list_announcements(
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     limit: Optional[int] = Query(None, description="回傳筆數上限（不指定則回傳全部）"),
     payload: dict = Depends(get_current_user_payload),
 ):
@@ -74,7 +75,7 @@ async def list_announcements(
 
 @router.get("/all", response_model=List[AnnouncementResponse])
 async def list_all_announcements(
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """取得所有公告（含未發布，管理用）"""
@@ -93,11 +94,13 @@ async def list_all_announcements(
 @router.post("", response_model=MessageResponse)
 async def create_announcement(
     body: AnnouncementCreate,
-    country: Optional[str] = Query(None, description="目標國家（僅 super_admin 可跨國建立）"),
+    request: Request,
+    country: Optional[str] = Query(None, description="目標國家（僅 root 可跨國建立）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """新增公告（不含附件，僅建立記錄）"""
     target_country = _resolve_country(payload, country)
+    operator_email = payload.get("sub", "")
     session = await data_router.get_local_pg(target_country)
     try:
         notice = LocalNotice(
@@ -109,9 +112,19 @@ async def create_announcement(
         )
         session.add(notice)
         await session.commit()
-        return MessageResponse(message="公告已新增", detail=str(notice.notice_id))
+        notice_id = str(notice.notice_id)
     finally:
         await session.close()
+
+    audit_log(
+        action=AuditAction.ANNOUNCEMENT_CREATE,
+        operator_email=operator_email,
+        country_code=target_country,
+        target=notice_id,
+        details={"subject": body.subject, "publish_status": body.publish_status},
+        request=request,
+    )
+    return MessageResponse(message="公告已新增", detail=notice_id)
 
 
 @router.post("/create-with-files", response_model=MessageResponse)
@@ -120,7 +133,7 @@ async def create_announcement_with_files(
     subject: str = Query(..., description="公告標題"),
     content_en: str = Query("", description="公告內容"),
     publish_status: str = Query("published", description="發布狀態"),
-    country: Optional[str] = Query(None, description="目標國家（僅 super_admin 可跨國建立）"),
+    country: Optional[str] = Query(None, description="目標國家（僅 root 可跨國建立）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """
@@ -269,11 +282,13 @@ async def create_announcement_with_files(
 async def update_announcement(
     notice_id: str,
     body: AnnouncementUpdate,
-    country: Optional[str] = Query(None, description="目標國家（僅 super_admin 可跨國編輯）"),
+    request: Request,
+    country: Optional[str] = Query(None, description="目標國家（僅 root 可跨國編輯）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """編輯公告"""
     target_country = _resolve_country(payload, country)
+    operator_email = payload.get("sub", "")
     update_data = {}
     if body.subject is not None:
         update_data["subject"] = body.subject
@@ -299,21 +314,43 @@ async def update_announcement(
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="公告不存在")
         await session.commit()
-        return MessageResponse(message="公告已更新")
     finally:
         await session.close()
+
+    log_details = {k: v for k, v in update_data.items() if k not in ("files", "library_docs")}
+    audit_log(
+        action=AuditAction.ANNOUNCEMENT_UPDATE,
+        operator_email=operator_email,
+        country_code=target_country,
+        target=notice_id,
+        details=log_details,
+        request=request,
+    )
+    return MessageResponse(message="公告已更新")
 
 
 @router.delete("/{notice_id}", response_model=MessageResponse)
 async def delete_announcement(
     notice_id: str,
-    country: Optional[str] = Query(None, description="目標國家（僅 super_admin 可跨國刪除）"),
+    request: Request,
+    country: Optional[str] = Query(None, description="目標國家（僅 root 可跨國刪除）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """刪除公告"""
     target_country = _resolve_country(payload, country)
+    operator_email = payload.get("sub", "")
+
+    # 先查詢公告標題（用於日誌）
+    subject = notice_id
     session = await data_router.get_local_pg(target_country)
     try:
+        notice_result = await session.execute(
+            select(LocalNotice).where(LocalNotice.notice_id == notice_id)
+        )
+        notice_obj = notice_result.scalar_one_or_none()
+        if notice_obj:
+            subject = notice_obj.subject
+
         result = await session.execute(
             delete(LocalNotice).where(LocalNotice.notice_id == notice_id)
         )
@@ -326,6 +363,14 @@ async def delete_announcement(
     # 刪除附件檔案
     storage_service.delete_files(target_country, "announcements", notice_id)
 
+    audit_log(
+        action=AuditAction.ANNOUNCEMENT_DELETE,
+        operator_email=operator_email,
+        country_code=target_country,
+        target=notice_id,
+        details={"subject": subject},
+        request=request,
+    )
     return MessageResponse(message="公告已刪除")
 
 
@@ -333,7 +378,7 @@ async def delete_announcement(
 async def upload_announcement_file(
     request: Request,
     notice_id: str = Query(..., description="公告 ID"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """上傳公告附件（支援多檔案）"""
@@ -457,7 +502,7 @@ async def upload_announcement_file(
 async def delete_announcement_file(
     notice_id: str,
     filename: str = Query(..., description="要刪除的附件檔名"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(require_permission("manage_announcements")),
 ):
     """刪除公告的單一附件"""
@@ -506,7 +551,7 @@ async def delete_announcement_file(
 async def download_announcement_file(
     notice_id: str,
     filename: Optional[str] = Query(None, description="指定下載的檔案名稱（多附件時使用）"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """下載公告附件（支援指定檔名下載）"""
@@ -553,7 +598,7 @@ async def download_announcement_file(
 async def preview_announcement_file(
     notice_id: str,
     filename: Optional[str] = Query(None, description="指定預覽的檔案名稱（多附件時使用）"),
-    country: Optional[str] = Query(None, description="國家代碼（僅 super_admin 可跨國）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """預覽公告附件（僅支援 PDF，回傳 application/pdf 供 iframe 嵌入）"""
