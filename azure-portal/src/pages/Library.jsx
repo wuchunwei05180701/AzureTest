@@ -133,6 +133,10 @@ const Library = () => {
   // 下載檔案彈窗
   const [downloadModalOpen, setDownloadModalOpen] = useState(false);
 
+  // 用 ref 追蹤最新的 blob URL，避免 stale closure 問題
+  const thumbnailUrlRef = React.useRef(null);
+  const previewUrlRef = React.useRef(null);
+
   const fetchLibrary = async (country) => {
     setLoading(true);
     try {
@@ -176,10 +180,12 @@ const Library = () => {
   const getPage = (libId) => pageMap[libId] || 1;
   const setPage = (libId, page) => setPageMap((prev) => ({ ...prev, [libId]: page }));
 
-  // 載入 PDF blob URL（用於縮圖）
+  // 載入 PDF blob URL（用於縮圖，不記錄稽核日誌）
   const loadThumbnail = useCallback(async (doc) => {
-    if (thumbnailUrl) {
-      URL.revokeObjectURL(thumbnailUrl);
+    // 使用 ref 取得最新 URL，避免 stale closure
+    if (thumbnailUrlRef.current) {
+      URL.revokeObjectURL(thumbnailUrlRef.current);
+      thumbnailUrlRef.current = null;
       setThumbnailUrl(null);
     }
 
@@ -191,22 +197,26 @@ const Library = () => {
 
     setThumbnailLoading(true);
     try {
-      const res = await libraryAPI.preview(doc.id, effectiveCountry, firstPdf.filename);
-      const blob = new Blob([res.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
+      // record=false：縮圖載入不計入預覽統計
+      const res = await libraryAPI.preview(doc.id, effectiveCountry, firstPdf.filename, false);
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      thumbnailUrlRef.current = url;
       setThumbnailUrl(url);
     } catch (err) {
       console.error('PDF 縮圖載入失敗:', err);
+      thumbnailUrlRef.current = null;
       setThumbnailUrl(null);
     } finally {
       setThumbnailLoading(false);
     }
-  }, [thumbnailUrl, effectiveCountry]);
+  }, [effectiveCountry]);
 
-  // 載入完整預覽（開新 Modal 時用）
+  // 載入完整預覽（開新 Modal 時用），record=true 記錄稽核日誌
   const loadFullPreview = useCallback(async (doc, filename) => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    // 使用 ref 取得最新 URL，避免 stale closure
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     }
 
@@ -218,18 +228,20 @@ const Library = () => {
     setPreviewFilename(targetFilename);
     setPreviewLoading(true);
     try {
-      const res = await libraryAPI.preview(doc.id, effectiveCountry, targetFilename);
-      const blob = new Blob([res.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
+      // record=true（預設）：記錄預覽稽核日誌
+      const res = await libraryAPI.preview(doc.id, effectiveCountry, targetFilename, true);
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      previewUrlRef.current = url;
       setPreviewUrl(url);
     } catch (err) {
-      console.error('PDF 預覽載入失敗:', err);
+      console.error('PDF 完整預覽載入失敗:', err);
       message.error(t('libraryPage.pdfPreviewFailed'));
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     } finally {
       setPreviewLoading(false);
     }
-  }, [previewUrl, effectiveCountry, t]);
+  }, [effectiveCountry, t]);
 
   // 選擇文件時自動載入縮圖
   useEffect(() => {
@@ -237,8 +249,9 @@ const Library = () => {
       loadThumbnail(selectedDoc);
     }
     return () => {
-      if (thumbnailUrl) {
-        URL.revokeObjectURL(thumbnailUrl);
+      if (thumbnailUrlRef.current) {
+        URL.revokeObjectURL(thumbnailUrlRef.current);
+        thumbnailUrlRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,8 +267,9 @@ const Library = () => {
   const handleClosePreviewModal = () => {
     setPreviewModalOpen(false);
     setPreviewFilename(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     }
   };
@@ -265,10 +279,18 @@ const Library = () => {
     setSelectedDoc(null);
     setDownloadModalOpen(false);
     handleClosePreviewModal();
-    if (thumbnailUrl) {
-      URL.revokeObjectURL(thumbnailUrl);
+    if (thumbnailUrlRef.current) {
+      URL.revokeObjectURL(thumbnailUrlRef.current);
+      thumbnailUrlRef.current = null;
       setThumbnailUrl(null);
     }
+  };
+
+  // 記錄文件點擊（開啟 Modal 時呼叫）
+  const handleDocClick = (doc) => {
+    setSelectedDoc(doc);
+    // 背景記錄點擊，不阻塞 UI
+    libraryAPI.recordView(doc.id, effectiveCountry).catch(() => {});
   };
 
   // 下載檔案
@@ -372,7 +394,7 @@ const Library = () => {
                     <div
                       key={doc.id}
                       className="library-card-doc-item"
-                      onClick={() => setSelectedDoc(doc)}
+                      onClick={() => handleDocClick(doc)}
                     >
                       {getFileIcon(doc.files?.[0]?.filename || doc.name)}
                       <span style={{ marginRight: 8 }} />
@@ -410,7 +432,7 @@ const Library = () => {
               <div
                 key={doc.id}
                 className="library-doc-card"
-                onClick={() => setSelectedDoc(doc)}
+                onClick={() => handleDocClick(doc)}
               >
                 <div className="library-doc-card-icon">
                   {React.cloneElement(getFileIcon(doc.files?.[0]?.filename || doc.name), { style: { fontSize: 36 } })}

@@ -129,13 +129,6 @@ async def create_user(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"無效的角色: {body.role}")
 
-    # 國家隔離：非 root 只能建立自己國家的使用者
-    if operator_role != "root" and body.country != operator_country:
-        raise HTTPException(
-            status_code=403,
-            detail=f"權限不足：只能建立 {operator_country} 國家的使用者"
-        )
-
     # 驗證國家是否存在於 LOCAL_DB_CONFIG
     if body.country not in settings.LOCAL_DB_CONFIG:
         raise HTTPException(status_code=400, detail=f"國家 [{body.country}] 尚未設定 Local DB")
@@ -218,6 +211,12 @@ async def update_user(
         update_data["name"] = body.name
     if body.department is not None:
         update_data["department"] = body.department
+    if body.country is not None:
+        # 驗證國家是否存在於 LOCAL_DB_CONFIG
+        if body.country not in settings.LOCAL_DB_CONFIG:
+            raise HTTPException(status_code=400, detail=f"國家 [{body.country}] 尚未設定 Local DB")
+        # root 和 admin 皆可設定任意國家
+        update_data["country_code"] = body.country
     if body.role is not None:
         try:
             Role(body.role)

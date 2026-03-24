@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal, Button, Tag, Spin, message, List, Input, Pagination, Empty, Space } from 'antd';
 import {
@@ -78,10 +78,12 @@ const Home = () => {
 
   // PDF 縮圖用的 blob URL（用於 PdfThumbnail 渲染第一頁）
   const [thumbnailUrl, setThumbnailUrl] = useState(null);
+  const thumbnailUrlRef = useRef(null);  // 用 ref 追蹤舊 URL，避免 useCallback 依賴 state
   const [thumbnailLoading, setThumbnailLoading] = useState(false);
   // 完整預覽 Modal
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const previewUrlRef = useRef(null);    // 用 ref 追蹤舊 URL，避免 useCallback 依賴 state
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewFilename, setPreviewFilename] = useState(null);
   // 下載檔案彈窗
@@ -161,8 +163,10 @@ const Home = () => {
 
   // 載入 PDF blob URL（用於縮圖）
   const loadThumbnail = useCallback(async (announcement) => {
-    if (thumbnailUrl) {
-      URL.revokeObjectURL(thumbnailUrl);
+    // 用 ref 讀取舊 URL，不把 thumbnailUrl state 放進依賴陣列，避免無限重建循環
+    if (thumbnailUrlRef.current) {
+      URL.revokeObjectURL(thumbnailUrlRef.current);
+      thumbnailUrlRef.current = null;
       setThumbnailUrl(null);
     }
 
@@ -177,19 +181,23 @@ const Home = () => {
       const res = await announcementAPI.preview(announcement.id, effectiveCountry, firstPdf.name);
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
+      thumbnailUrlRef.current = url;
       setThumbnailUrl(url);
     } catch (err) {
       console.error('PDF 縮圖載入失敗:', err);
+      thumbnailUrlRef.current = null;
       setThumbnailUrl(null);
     } finally {
       setThumbnailLoading(false);
     }
-  }, [thumbnailUrl, effectiveCountry]);
+  }, [effectiveCountry]);  // 移除 thumbnailUrl 依賴，改用 ref
 
   // 載入完整預覽（開新 Modal 時用）
   const loadFullPreview = useCallback(async (announcement, filename) => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    // 用 ref 讀取舊 URL，不把 previewUrl state 放進依賴陣列，避免無限重建循環
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     }
 
@@ -204,14 +212,16 @@ const Home = () => {
       const res = await announcementAPI.preview(announcement.id, effectiveCountry, targetFilename);
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
+      previewUrlRef.current = url;
       setPreviewUrl(url);
     } catch (err) {
       console.error('PDF 預覽載入失敗:', err);
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     } finally {
       setPreviewLoading(false);
     }
-  }, [previewUrl, effectiveCountry]);
+  }, [effectiveCountry]);  // 移除 previewUrl 依賴，改用 ref
 
   // 選擇公告時自動載入縮圖
   useEffect(() => {
@@ -219,12 +229,13 @@ const Home = () => {
       loadThumbnail(selectedAnnouncement);
     }
     return () => {
-      if (thumbnailUrl) {
-        URL.revokeObjectURL(thumbnailUrl);
+      // cleanup 用 ref 讀取，不依賴 state
+      if (thumbnailUrlRef.current) {
+        URL.revokeObjectURL(thumbnailUrlRef.current);
+        thumbnailUrlRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAnnouncement?.id]);
+  }, [selectedAnnouncement?.id, loadThumbnail]);
 
   // 點擊縮圖 → 開新的預覽 Modal
   const handleOpenPreviewModal = (announcement, filename) => {
@@ -236,8 +247,9 @@ const Home = () => {
   const handleClosePreviewModal = () => {
     setPreviewModalOpen(false);
     setPreviewFilename(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     }
   };
@@ -247,8 +259,9 @@ const Home = () => {
     setSelectedAnnouncement(null);
     setDownloadModalOpen(false);
     handleClosePreviewModal();
-    if (thumbnailUrl) {
-      URL.revokeObjectURL(thumbnailUrl);
+    if (thumbnailUrlRef.current) {
+      URL.revokeObjectURL(thumbnailUrlRef.current);
+      thumbnailUrlRef.current = null;
       setThumbnailUrl(null);
     }
   };
@@ -746,7 +759,7 @@ const Home = () => {
                 <div className="agent-preview-name">{agent.name}</div>
                 <div className="agent-preview-meta">
                   <span className="agent-model">{agent.model}</span>
-                  <Tag color="green" style={{ marginLeft: 8 }}>{agent.status}</Tag>
+                  <Tag color="green" style={{ marginLeft: 8 }}>{t(`agentStore.status_${agent.status}`)}</Tag>
                 </div>
               </div>
               <Button

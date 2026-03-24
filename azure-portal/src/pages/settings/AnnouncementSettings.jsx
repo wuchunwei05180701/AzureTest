@@ -408,7 +408,7 @@ const AnnouncementSettings = () => {
           <Popconfirm
             title={t('announcementSettings.deleteConfirm')}
             onConfirm={() => handleDelete(record.id)}
-            okText={t('common.confirm')}
+            okText={t('common.delete')}
             cancelText={t('common.cancel')}
           >
             <Button type="text" danger icon={<DeleteOutlined />}>

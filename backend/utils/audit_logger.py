@@ -58,6 +58,8 @@ class AuditAction:
     LIBRARY_DELETE      = "library.delete"
     LIBRARY_AUTH_UPDATE = "library.auth_update"
     LIBRARY_UPDATE      = "library.update"
+    LIBRARY_VIEW        = "library.view"     # 點擊開啟文件 Modal
+    LIBRARY_PREVIEW     = "library.preview"  # 預覽 PDF
 
     # 公告
     ANNOUNCEMENT_CREATE = "announcement.create"
@@ -65,6 +67,7 @@ class AuditAction:
     ANNOUNCEMENT_DELETE = "announcement.delete"
 
     # 聊天
+    CHAT_SEND           = "chat.send"
     CHAT_SESSION_DELETE = "chat.session_delete"
 
     # PII

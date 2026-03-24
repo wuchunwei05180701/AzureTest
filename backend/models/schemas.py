@@ -49,6 +49,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     department: Optional[str] = None
+    country: Optional[str] = Field(None, min_length=2, max_length=5)
     role: Optional[str] = None
 
 

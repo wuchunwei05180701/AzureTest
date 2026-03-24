@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'; // useMemo 保留供 filteredSessions
 import { Button, Tag, Input, Select, Empty, Spin, Popconfirm, Tooltip, message as antdMessage } from 'antd';
 import {
   SendOutlined,
@@ -14,9 +14,7 @@ import {
   CloseCircleFilled,
 } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
-import { agentAPI, chatAPI } from '../services/api';
-import { adaptAgents, adaptSessionList, adaptSessionDetail } from '../utils/adapters';
-import { agents as mockAgents } from '../data/mockData';
+import { useChat } from '../contexts/ChatContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import './AgentChat.css';
 
@@ -26,30 +24,36 @@ const AgentChat = () => {
   const { t, language } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Agent 列表
-  const [agents, setAgents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedAgent, setSelectedAgent] = useState(null);
+  // ── 從 ChatContext 取得所有共享狀態與操作 ──────────────────
+  const {
+    agents,
+    agentsLoading,
+    selectedAgent,
+    handleSelectAgent,
+    sessions,
+    sessionsLoading,
+    sessionId,
+    handleSelectSession,
+    handleDeleteSession: ctxDeleteSession,
+    messages,
+    isStreaming,
+    handleSend: ctxHandleSend,
+    handleNewChat,
+    handleStopStreaming,
+    selectedImages,
+    setSelectedImages,
+    loadFromUrlParams,
+  } = useChat();
 
-  // Session 列表
-  const [sessions, setSessions] = useState([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-
-  // 對話狀態
-  const [messages, setMessages] = useState([]);
+  // ── 本地 UI 狀態（不需要跨頁面保留）──────────────────────
   const [inputValue, setInputValue] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionSearchText, setSessionSearchText] = useState('');
 
-  // 圖片上傳狀態
-  const [selectedImages, setSelectedImages] = useState([]); // [{ file, base64, preview, name }]
+  // ── Refs ─────────────────────────────────────────────────────
+  const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Refs
-  const messagesEndRef = useRef(null);
-  const abortRef = useRef(null);
-
-  // 時間格式 locale
+  // ── 時間格式 locale ──────────────────────────────────────────
   const timeLocale =
     language === 'ja'
       ? 'ja-JP'
@@ -61,262 +65,105 @@ const AgentChat = () => {
             ? 'en-US'
             : 'zh-TW';
 
-  // 載入 Agent 列表
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        const res = await agentAPI.list();
-        setAgents(adaptAgents(res.data));
-      } catch (err) {
-        console.warn('Agent API 失敗，使用 mock 資料', err);
-        setAgents(mockAgents);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAgents();
-  }, []);
+  // ── Session 搜尋過濾 ─────────────────────────────────────
+  const filteredSessions = useMemo(() => {
+    if (!sessionSearchText.trim()) return sessions;
+    const text = sessionSearchText.trim().toLowerCase();
+    return sessions.filter((s) =>
+      (s.lastMessagePreview || '').toLowerCase().includes(text) ||
+      (s.title || '').toLowerCase().includes(text)
+    );
+  }, [sessions, sessionSearchText]);
 
-  // 當選擇 Agent 時載入該 Agent 的 Session 列表
-  const fetchSessions = useCallback(async (agentId) => {
-    if (!agentId) {
-      setSessions([]);
-      return;
-    }
-    setSessionsLoading(true);
-    try {
-      const res = await chatAPI.sessions({ agent_id: agentId, page_size: 50 });
-      const adapted = adaptSessionList(res.data);
-      setSessions(adapted.sessions);
-    } catch (err) {
-      console.warn('載入 Session 列表失敗', err);
-      setSessions([]);
-    } finally {
-      setSessionsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedAgent) {
-      fetchSessions(selectedAgent.id);
-    } else {
-      setSessions([]);
-    }
-  }, [selectedAgent, fetchSessions]);
-
-  // 從 URL 參數載入（支援兩種情境）：
+  // ── 從 URL 參數載入（支援兩種情境）：
   // 1. ChatHistory 跳轉：?session=xxx&agent=xxx → 載入歷史訊息
   // 2. Home Agent 卡片：?agent=xxx → 自動選擇 Agent，開始新對話
   useEffect(() => {
-    if (loading || agents.length === 0) return;
+    if (agentsLoading || agents.length === 0) return;
 
     const urlSession = searchParams.get('session');
     const urlAgent = searchParams.get('agent');
 
     if (urlAgent) {
-      const agent = agents.find((a) => a.id === urlAgent);
-      if (agent) {
-        setSelectedAgent(agent);
-
-        if (urlSession) {
-          // 情境 1：從 ChatHistory 繼續對話
-          setSessionId(urlSession);
-
-          // 載入歷史訊息
-          const loadHistory = async () => {
-            try {
-              const res = await chatAPI.sessionDetail(urlSession);
-              const detail = adaptSessionDetail(res.data);
-              if (detail?.messages?.length > 0) {
-                setMessages(
-                  detail.messages.map((msg) => ({
-                    role: msg.role,
-                    content: msg.content,
-                    time: msg.time || '',
-                    isStreaming: false,
-                  }))
-                );
-              }
-            } catch (err) {
-              console.warn('載入歷史訊息失敗', err);
-            }
-          };
-          loadHistory();
-        } else {
-          // 情境 2：從 Home 頁面點擊 Agent 卡片，開始新對話
-          setMessages([]);
-          setSessionId(null);
-        }
-      }
-
+      loadFromUrlParams(urlAgent, urlSession);
       // 清除 URL 參數（避免重新整理時重複載入）
       setSearchParams({}, { replace: true });
     }
-  }, [loading, agents, searchParams, setSearchParams]);
+  }, [agentsLoading, agents, searchParams, setSearchParams, loadFromUrlParams]);
 
-  // 自動捲動到底部
+  // ── 自動捲動到底部 ───────────────────────────────────────────
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 元件卸載時中斷串流
-  useEffect(() => {
-    return () => {
-      if (abortRef.current) {
-        abortRef.current();
-        abortRef.current = null;
+  // ── 刪除 Session（含 UI 提示）───────────────────────────────
+  const handleDeleteSession = useCallback(
+    async (sid, e) => {
+      e?.stopPropagation();
+      try {
+        await ctxDeleteSession(sid);
+        antdMessage.success(t('agentChat.sessionDeleted'));
+      } catch {
+        antdMessage.error(t('agentChat.sessionDeleteFailed'));
       }
-    };
-  }, []);
-
-  // 選擇 Agent
-  const handleSelectAgent = useCallback(
-    (agentId) => {
-      // 如果正在串流，先中斷
-      if (abortRef.current) {
-        abortRef.current();
-        abortRef.current = null;
-      }
-
-      const agent = agents.find((a) => a.id === agentId);
-      setSelectedAgent(agent);
-      setMessages([]);
-      setSessionId(null);
-      setIsStreaming(false);
-      setInputValue('');
     },
-    [agents],
+    [ctxDeleteSession, t],
   );
 
-  // 選擇 Session（載入歷史訊息）
-  const handleSelectSession = useCallback(async (session) => {
-    if (!session) return;
+  // ── 圖片上傳相關 ─────────────────────────────────────────────
+  const handleImageSelect = useCallback(
+    async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
 
-    // 如果正在串流，先中斷
-    if (abortRef.current) {
-      abortRef.current();
-      abortRef.current = null;
-    }
+      const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+      const MAX_IMAGES = 5;
 
-    setSessionId(session.sessionId);
-    setIsStreaming(false);
-    setInputValue('');
-
-    // 載入歷史訊息
-    try {
-      const res = await chatAPI.sessionDetail(session.sessionId);
-      const detail = adaptSessionDetail(res.data);
-      if (detail?.messages?.length > 0) {
-        setMessages(
-          detail.messages.map((msg) => ({
-            role: msg.role,
-            content: msg.content,
-            time: msg.time || '',
-            isStreaming: false,
-          }))
-        );
-      } else {
-        setMessages([]);
+      if (selectedImages.length + files.length > MAX_IMAGES) {
+        antdMessage.warning(t('agentChat.maxImagesWarning', { max: MAX_IMAGES }));
+        return;
       }
-    } catch (err) {
-      console.warn('載入歷史訊息失敗', err);
-      setMessages([]);
-    }
-  }, []);
 
-  // 刪除 Session
-  const handleDeleteSession = useCallback(async (sid, e) => {
-    e?.stopPropagation();
-    try {
-      await chatAPI.deleteSession(sid);
-      antdMessage.success(t('agentChat.sessionDeleted'));
-      // 如果刪除的是當前 session，清空對話
-      if (sessionId === sid) {
-        setMessages([]);
-        setSessionId(null);
+      const validImages = [];
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+          antdMessage.warning(t('agentChat.notImageFile', { name: file.name }));
+          continue;
+        }
+        if (file.size > MAX_IMAGE_SIZE) {
+          antdMessage.warning(t('agentChat.imageTooLarge', { name: file.name }));
+          continue;
+        }
+        try {
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          validImages.push({ file, base64, preview: base64, name: file.name });
+        } catch {
+          antdMessage.error(t('agentChat.imageReadFailed', { name: file.name }));
+        }
       }
-      // 重新載入 session 列表
-      if (selectedAgent) {
-        fetchSessions(selectedAgent.id);
+
+      if (validImages.length > 0) {
+        setSelectedImages((prev) => [...prev, ...validImages]);
       }
-    } catch {
-      antdMessage.error(t('agentChat.sessionDeleteFailed'));
-    }
-  }, [sessionId, selectedAgent, fetchSessions, t]);
 
-  // 新對話
-  const handleNewChat = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current();
-      abortRef.current = null;
-    }
-    setMessages([]);
-    setSessionId(null);
-    setIsStreaming(false);
-  }, []);
-
-  // 中斷串流
-  const handleStopStreaming = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current();
-      abortRef.current = null;
-    }
-    setIsStreaming(false);
-  }, []);
-
-  // ===== 圖片上傳相關 =====
-  const handleImageSelect = useCallback(async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-    const MAX_IMAGES = 5;
-
-    // 檢查數量限制
-    if (selectedImages.length + files.length > MAX_IMAGES) {
-      antdMessage.warning(t('agentChat.maxImagesWarning', { max: MAX_IMAGES }));
-      return;
-    }
-
-    const validImages = [];
-    for (const file of files) {
-      // 檢查是否為圖片
-      if (!file.type.startsWith('image/')) {
-        antdMessage.warning(t('agentChat.notImageFile', { name: file.name }));
-        continue;
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
-      // 檢查大小
-      if (file.size > MAX_IMAGE_SIZE) {
-        antdMessage.warning(t('agentChat.imageTooLarge', { name: file.name }));
-        continue;
-      }
-      // 轉 base64
-      try {
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        validImages.push({ file, base64, preview: base64, name: file.name });
-      } catch {
-        antdMessage.error(t('agentChat.imageReadFailed', { name: file.name }));
-      }
-    }
+    },
+    [selectedImages, setSelectedImages, t],
+  );
 
-    if (validImages.length > 0) {
-      setSelectedImages((prev) => [...prev, ...validImages]);
-    }
-
-    // 清空 input 以便重複選擇同一檔案
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, [selectedImages, t]);
-
-  const handleRemoveImage = useCallback((index) => {
-    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const handleRemoveImage = useCallback(
+    (index) => {
+      setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+    },
+    [setSelectedImages],
+  );
 
   const handleOpenFilePicker = useCallback(() => {
     if (fileInputRef.current) {
@@ -324,154 +171,15 @@ const AgentChat = () => {
     }
   }, []);
 
-  // 發送訊息（Streaming）
+  // ── 發送訊息（委派給 ChatContext）───────────────────────────
   const handleSend = useCallback(() => {
     if ((!inputValue.trim() && selectedImages.length === 0) || !selectedAgent || isStreaming) return;
-
-    const userContent = inputValue.trim() || (selectedImages.length > 0 ? t('agentChat.imageMessage') : '');
-    const now = new Date().toLocaleTimeString(timeLocale, {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    // 加入使用者訊息（含圖片預覽）
-    const userMsg = {
-      role: 'user',
-      content: userContent,
-      time: now,
-      images: selectedImages.length > 0 ? selectedImages.map((img) => ({ preview: img.preview, name: img.name })) : undefined,
-    };
-
-    // 加入空的 assistant 訊息（等待串流填充）
-    const assistantMsg = {
-      role: 'assistant',
-      content: '',
-      time: '',
-      isStreaming: true,
-    };
-
-    // 準備圖片 base64 陣列
-    const imageData = selectedImages.length > 0
-      ? selectedImages.map((img) => img.base64)
-      : undefined;
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    ctxHandleSend(inputValue, timeLocale, t);
     setInputValue('');
-    setSelectedImages([]);
-    setIsStreaming(true);
+  }, [inputValue, selectedImages, selectedAgent, isStreaming, ctxHandleSend, timeLocale, t]);
 
-    // 呼叫 streaming API
-    const abort = chatAPI.stream(
-      {
-        agent_id: selectedAgent.id,
-        message: userContent,
-        session_id: sessionId,
-        images: imageData,
-      },
-      // onMessage
-      (eventData) => {
-        if (eventData.type === 'content') {
-          setMessages((prev) => {
-            const updated = [...prev];
-            const lastIdx = updated.length - 1;
-            if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                content: eventData.accumulated || updated[lastIdx].content + (eventData.data || ''),
-              };
-            }
-            return updated;
-          });
-        } else if (eventData.type === 'complete') {
-          const newSessionId = eventData.session_id;
-          const newThreadId = eventData.thread_id;
-
-          if (newSessionId) {
-            setSessionId(newSessionId);
-          } else if (newThreadId) {
-            setSessionId(newThreadId);
-          }
-
-          const completeTime = new Date().toLocaleTimeString(timeLocale, {
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          setMessages((prev) => {
-            const updated = [...prev];
-            const lastIdx = updated.length - 1;
-            if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                content: eventData.content || updated[lastIdx].content,
-                time: completeTime,
-                isStreaming: false,
-              };
-            }
-            return updated;
-          });
-          setIsStreaming(false);
-          abortRef.current = null;
-
-          // 對話完成後重新載入 Session 列表
-          if (selectedAgent) {
-            fetchSessions(selectedAgent.id);
-          }
-        }
-      },
-      // onComplete
-      () => {
-        setIsStreaming(false);
-        abortRef.current = null;
-        setMessages((prev) => {
-          const updated = [...prev];
-          const lastIdx = updated.length - 1;
-          if (lastIdx >= 0 && updated[lastIdx].role === 'assistant' && updated[lastIdx].isStreaming) {
-            const completeTime = new Date().toLocaleTimeString(timeLocale, {
-              hour: '2-digit',
-              minute: '2-digit',
-            });
-            updated[lastIdx] = {
-              ...updated[lastIdx],
-              time: completeTime,
-              isStreaming: false,
-            };
-          }
-          return updated;
-        });
-      },
-      // onError
-      (error) => {
-        console.error('❌ Chat stream error:', error);
-        setIsStreaming(false);
-        abortRef.current = null;
-
-        setMessages((prev) => {
-          const updated = [...prev];
-          const lastIdx = updated.length - 1;
-          if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-            updated[lastIdx] = {
-              ...updated[lastIdx],
-              content: t('agentChat.errorReply'),
-              time: new Date().toLocaleTimeString(timeLocale, {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-              isStreaming: false,
-              isError: true,
-            };
-          }
-          return updated;
-        });
-
-        antdMessage.error(error.message || t('agentChat.errorReply'));
-      },
-    );
-
-    abortRef.current = abort;
-  }, [inputValue, selectedAgent, isStreaming, sessionId, timeLocale, t, fetchSessions, selectedImages]);
-
-  // Loading 狀態
-  if (loading) {
+  // ── Loading 狀態 ─────────────────────────────────────────────
+  if (agentsLoading) {
     return (
       <div
         className="agent-chat-page"
@@ -507,6 +215,19 @@ const AgentChat = () => {
             />
           )}
         </div>
+        {/* 搜尋列 */}
+        {selectedAgent && (
+          <div className="session-search-bar">
+            <Input
+              size="small"
+              placeholder={t('agentChat.searchSession')}
+              value={sessionSearchText}
+              onChange={(e) => setSessionSearchText(e.target.value)}
+              allowClear
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
         <div className="session-panel-list">
           {!selectedAgent ? (
             <div className="session-empty-hint">
@@ -517,12 +238,12 @@ const AgentChat = () => {
               <Spin size="small" />
               <span style={{ marginLeft: 8 }}>{t('agentChat.loadingSessions')}</span>
             </div>
-          ) : sessions.length === 0 ? (
+          ) : filteredSessions.length === 0 ? (
             <div className="session-empty-hint">
-              {t('agentChat.noSessions')}
+              {sessions.length === 0 ? t('agentChat.noSessions') : t('common.noData')}
             </div>
           ) : (
-            sessions.map((session) => (
+            filteredSessions.map((session) => (
               <div
                 key={session.sessionId}
                 className={`session-panel-item ${sessionId === session.sessionId ? 'active' : ''}`}
@@ -726,7 +447,7 @@ const AgentChat = () => {
         </div>
       </div>
 
-      {/* 右側 Agent 列表（恢復原本樣式） */}
+      {/* 右側 Agent 列表 */}
       <div className="chat-agent-panel">
         <div className="agent-panel-header">
           <span className="agent-panel-title">
@@ -762,7 +483,7 @@ const AgentChat = () => {
                     color="green"
                     style={{ marginLeft: 6, fontSize: 11 }}
                   >
-                    {agent.status}
+                    {t(`agentStore.status_${agent.status}`)}
                   </Tag>
                 </div>
               </div>

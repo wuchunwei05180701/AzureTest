@@ -31,6 +31,13 @@
   color: var(--text-primary);
 }
 
+/* 搜尋列 */
+.session-search-bar {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
 .session-panel-list {
   flex: 1;
   overflow-y: auto;

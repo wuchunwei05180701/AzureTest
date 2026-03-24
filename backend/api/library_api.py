@@ -4,11 +4,12 @@
 root 可跨國查看（透過 ?country=XX 參數）
 """
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
-from sqlalchemy import delete, select, update, func
+from sqlalchemy import delete, select, update, func, and_
 
 from config import settings
 from core.data_router import data_router
@@ -656,6 +657,229 @@ async def upload_document(
     return MessageResponse(message=msg, detail=doc_id)
 
 
+@router.get("/stats/summary")
+async def get_library_stats(
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
+    date_from: Optional[str] = Query(None, description="開始時間（ISO 8601，例如 2026-01-01T00:00:00Z）"),
+    date_to: Optional[str] = Query(None, description="結束時間（ISO 8601）"),
+    payload: dict = Depends(get_current_user_payload),
+):
+    """
+    取得圖書館文件統計（點擊、預覽、下載次數）
+    - 一般使用者：只能查看自己國家
+    - root：可透過 country 參數指定國家，不傳則看所有國家
+    """
+    from core.database import GlobalSessionLocal
+    from models.global_models import GlobalAuditLog
+
+    role = payload.get("role", "user")
+    user_country = payload.get("country", "")
+
+    # 決定 country 篩選邏輯
+    # root：可指定 country，不指定則看所有國家（不加 country 篩選）
+    # 其他角色：只能看自己的國家
+    if role == "root":
+        target_country = country  # 可能是 None（看全部）或指定國家
+    else:
+        # 非 root：只能看自己的國家，忽略 country 參數
+        target_country = user_country or "TW"
+
+    # 解析時間範圍
+    dt_from = None
+    dt_to = None
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_from 格式錯誤：{date_from}")
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_to 格式錯誤：{date_to}")
+
+    # 查詢 global_audit_log 中圖書館相關的操作
+    library_actions = [
+        AuditAction.LIBRARY_VIEW,
+        AuditAction.LIBRARY_PREVIEW,
+        AuditAction.LIBRARY_DOWNLOAD,
+    ]
+
+    async with GlobalSessionLocal() as session:
+        # 建立基本條件
+        base_conditions = [
+            GlobalAuditLog.action.in_(library_actions),
+            GlobalAuditLog.result == "success",
+        ]
+        # 只有在指定 country 時才加 country 篩選
+        if target_country:
+            base_conditions.append(GlobalAuditLog.country_code == target_country)
+        if dt_from:
+            base_conditions.append(GlobalAuditLog.timestamp >= dt_from)
+        if dt_to:
+            base_conditions.append(GlobalAuditLog.timestamp <= dt_to)
+
+        where_clause = and_(*base_conditions)
+
+        # 1. 總覽統計
+        summary_result = await session.execute(
+            select(
+                GlobalAuditLog.action,
+                func.count(GlobalAuditLog.log_id).label("count"),
+            )
+            .where(where_clause)
+            .group_by(GlobalAuditLog.action)
+        )
+        summary_rows = summary_result.fetchall()
+        summary = {row.action: row.count for row in summary_rows}
+
+        # 2. 各文件統計（Top 20）
+        doc_result = await session.execute(
+            select(
+                GlobalAuditLog.target,
+                GlobalAuditLog.action,
+                func.count(GlobalAuditLog.log_id).label("count"),
+            )
+            .where(where_clause)
+            .group_by(GlobalAuditLog.target, GlobalAuditLog.action)
+            .order_by(func.count(GlobalAuditLog.log_id).desc())
+            .limit(100)
+        )
+        doc_rows = doc_result.fetchall()
+
+        # 整理各文件統計
+        doc_stats: dict = {}
+        for row in doc_rows:
+            doc_id_key = row.target
+            if doc_id_key not in doc_stats:
+                doc_stats[doc_id_key] = {
+                    "doc_id": doc_id_key,
+                    "doc_name": "",
+                    "library_name": "",
+                    "views": 0,
+                    "previews": 0,
+                    "downloads": 0,
+                }
+            if row.action == AuditAction.LIBRARY_VIEW:
+                doc_stats[doc_id_key]["views"] = row.count
+            elif row.action == AuditAction.LIBRARY_PREVIEW:
+                doc_stats[doc_id_key]["previews"] = row.count
+            elif row.action == AuditAction.LIBRARY_DOWNLOAD:
+                doc_stats[doc_id_key]["downloads"] = row.count
+
+        # 3. 取得文件名稱（從 details JSON 欄位）
+        if doc_stats:
+            # 修復：target_country 可能為 None（root 看全部），需要條件判斷
+            # 修復：JSONB 欄位用 is_not(None) 而非 isnot(None)
+            from sqlalchemy import text as sa_text
+            name_conditions = [
+                GlobalAuditLog.target.in_(list(doc_stats.keys())),
+                GlobalAuditLog.action.in_(library_actions),
+                GlobalAuditLog.details != None,  # noqa: E711
+            ]
+            if target_country:
+                name_conditions.append(GlobalAuditLog.country_code == target_country)
+            details_result = await session.execute(
+                select(
+                    GlobalAuditLog.target,
+                    GlobalAuditLog.details,
+                )
+                .where(and_(*name_conditions))
+                .order_by(GlobalAuditLog.timestamp.desc())
+                .limit(500)
+            )
+            seen_docs = set()
+            for row in details_result.fetchall():
+                if row.target not in seen_docs and row.details:
+                    doc_stats[row.target]["doc_name"] = row.details.get("doc_name", "")
+                    doc_stats[row.target]["library_name"] = row.details.get("library_name", "")
+                    seen_docs.add(row.target)
+
+        # 4. 各館統計
+        # 使用 literal_column 避免 asyncpg 參數化 GROUP BY 問題
+        from sqlalchemy import literal_column
+        lib_name_col = literal_column("details->>'library_name'").label("library_name")
+        library_result = await session.execute(
+            select(
+                GlobalAuditLog.action,
+                func.count(GlobalAuditLog.log_id).label("count"),
+                lib_name_col,
+            )
+            .where(where_clause)
+            .group_by(
+                GlobalAuditLog.action,
+                literal_column("details->>'library_name'"),
+            )
+            .order_by(func.count(GlobalAuditLog.log_id).desc())
+        )
+        library_rows = library_result.fetchall()
+
+        library_stats: dict = {}
+        for row in library_rows:
+            lib_name = row.library_name or "（未知）"
+            if lib_name not in library_stats:
+                library_stats[lib_name] = {
+                    "library_name": lib_name,
+                    "views": 0,
+                    "previews": 0,
+                    "downloads": 0,
+                }
+            if row.action == AuditAction.LIBRARY_VIEW:
+                library_stats[lib_name]["views"] = row.count
+            elif row.action == AuditAction.LIBRARY_PREVIEW:
+                library_stats[lib_name]["previews"] = row.count
+            elif row.action == AuditAction.LIBRARY_DOWNLOAD:
+                library_stats[lib_name]["downloads"] = row.count
+
+        # 5. 每日趨勢（最近 30 天）
+        from sqlalchemy import cast, Date as SADate
+        trend_result = await session.execute(
+            select(
+                cast(GlobalAuditLog.timestamp, SADate).label("date"),
+                GlobalAuditLog.action,
+                func.count(GlobalAuditLog.log_id).label("count"),
+            )
+            .where(where_clause)
+            .group_by(cast(GlobalAuditLog.timestamp, SADate), GlobalAuditLog.action)
+            .order_by(cast(GlobalAuditLog.timestamp, SADate))
+        )
+        trend_rows = trend_result.fetchall()
+
+        trend_map: dict = {}
+        for row in trend_rows:
+            date_str = str(row.date)
+            if date_str not in trend_map:
+                trend_map[date_str] = {"date": date_str, "views": 0, "previews": 0, "downloads": 0}
+            if row.action == AuditAction.LIBRARY_VIEW:
+                trend_map[date_str]["views"] = row.count
+            elif row.action == AuditAction.LIBRARY_PREVIEW:
+                trend_map[date_str]["previews"] = row.count
+            elif row.action == AuditAction.LIBRARY_DOWNLOAD:
+                trend_map[date_str]["downloads"] = row.count
+
+    # 排序 top_docs（依 views + downloads 總和）
+    top_docs = sorted(
+        doc_stats.values(),
+        key=lambda x: x["views"] + x["downloads"] + x["previews"],
+        reverse=True,
+    )[:20]
+
+    return {
+        "summary": {
+            "total_views": summary.get(AuditAction.LIBRARY_VIEW, 0),
+            "total_previews": summary.get(AuditAction.LIBRARY_PREVIEW, 0),
+            "total_downloads": summary.get(AuditAction.LIBRARY_DOWNLOAD, 0),
+        },
+        "top_docs": top_docs,
+        "by_library": sorted(
+            library_stats.values(),
+            key=lambda x: x["views"] + x["downloads"] + x["previews"],
+            reverse=True,
+        ),
+        "daily_trend": list(trend_map.values()),
+    }
+
+
 @router.delete("/by-library/{library_name}", response_model=MessageResponse)
 async def delete_library(
     library_name: str,
@@ -1122,8 +1346,10 @@ async def download_document(
 @router.get("/{doc_id}/preview")
 async def preview_document(
     doc_id: str,
+    request: Request,
     filename: Optional[str] = Query(None, description="指定預覽的檔案名稱（多檔案時使用）"),
     country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
+    record: bool = Query(True, description="是否記錄稽核日誌（縮圖載入時傳 false）"),
     payload: dict = Depends(get_current_user_payload),
 ):
     """預覽文件（僅支援 PDF，回傳 application/pdf 供 iframe 嵌入）"""
@@ -1176,11 +1402,60 @@ async def preview_document(
     if not file_path:
         raise HTTPException(status_code=404, detail="實體檔案不存在")
 
+    if record:
+        audit_log(
+            action=AuditAction.LIBRARY_PREVIEW,
+            operator_email=email,
+            country_code=target_country,
+            target=doc_id,
+            details={"doc_name": doc.name, "filename": target_filename, "library_name": doc.library_name},
+            request=request,
+        )
     return FileResponse(
         path=str(file_path),
         filename=target_filename,
         media_type="application/pdf",
     )
+
+
+@router.post("/{doc_id}/view", response_model=MessageResponse)
+async def record_view(
+    doc_id: str,
+    request: Request,
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
+    payload: dict = Depends(get_current_user_payload),
+):
+    """記錄文件點擊（開啟文件 Modal 時呼叫，寫入稽核日誌）"""
+    email = payload["sub"]
+    role = payload.get("role", "user")
+    target_country = _resolve_country(payload, country)
+
+    session = await data_router.get_local_pg(target_country)
+    try:
+        result = await session.execute(
+            select(LocalLibrary).where(LocalLibrary.doc_id == doc_id)
+        )
+        doc = result.scalar_one_or_none()
+    finally:
+        await session.close()
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 權限檢查
+    if not has_permission(role, "access_all_docs"):
+        if not _check_doc_auth(doc.auth_rules, email, role):
+            raise HTTPException(status_code=403, detail="無權存取此文件")
+
+    audit_log(
+        action=AuditAction.LIBRARY_VIEW,
+        operator_email=email,
+        country_code=target_country,
+        target=doc_id,
+        details={"doc_name": doc.name, "library_name": doc.library_name},
+        request=request,
+    )
+    return MessageResponse(message="已記錄")
 
 
 # === 內部工具函式 ===

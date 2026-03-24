@@ -130,7 +130,7 @@ const AgentStore = () => {
               <div className="agent-card-footer">
                 <div className="agent-card-tags">
                   <Tag color="blue" style={{ fontSize: 11 }}>{agent.model}</Tag>
-                  <Tag color="green" style={{ fontSize: 11 }}>{agent.status}</Tag>
+                  <Tag color="green" style={{ fontSize: 11 }}>{t(`agentStore.status_${agent.status}`)}</Tag>
                 </div>
                 <Button
                   type="primary"

@@ -62,7 +62,7 @@ const AgentPermissions = () => {
       const res = await agentAPI.listAll();
       const adapted = adaptAgents(res.data).map((a) => ({
         ...a,
-        published: a.status === '可用',
+        published: a.status === 'available',
         assignedUsers: a.acl?.authorizedUsers || [],
         assignedRoles: a.acl?.authorizedRoles || [],
       }));
@@ -224,7 +224,7 @@ const AgentPermissions = () => {
       },
     },
     {
-      title: t('common.actions'),
+      title: t('agentPermissions.settingColumn'),
       key: 'actions',
       width: 140,
       render: (_, record) => (

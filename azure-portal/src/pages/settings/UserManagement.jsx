@@ -59,6 +59,8 @@ const UserManagement = () => {
   const myEmail = currentUser?.email || '';
   const myCountry = currentUser?.country || 'TW';
   const isRoot = myRole === 'root';
+  const isAdmin = myRole === 'admin';
+  const canChangeCountry = isRoot || isAdmin;
 
   // ===== 載入可指派角色列表 =====
   const fetchAssignableRoles = useCallback(async () => {
@@ -142,11 +144,11 @@ const UserManagement = () => {
     const defaultRole = assignableRoles.length > 0
       ? assignableRoles[assignableRoles.length - 1].value
       : ROLES.USER;
-    // 非 root 預設國家為自己的國家
+    // 非 admin/root 預設國家為自己的國家
     form.setFieldsValue({
       role: defaultRole,
       status: 'active',
-      country: isRoot ? undefined : myCountry,
+      country: canChangeCountry ? undefined : myCountry,
     });
     setModalOpen(true);
   };
@@ -177,6 +179,7 @@ const UserManagement = () => {
           await userAPI.update(editingUser.email, {
             name: values.name,
             department: values.department,
+            country: canChangeCountry ? values.country : undefined,
             role: values.role,
           });
           message.success(t('userManagement.userUpdated'));
@@ -474,8 +477,8 @@ const UserManagement = () => {
             allowClear
             options={allRoleOptions}
           />
-          {/* 只有 root 可以篩選國家 */}
-          {isRoot && (
+          {/* root / admin 可以篩選國家 */}
+          {canChangeCountry && (
             <Select
               placeholder={t('userManagement.filterCountry')}
               style={{ width: 120 }}
@@ -583,12 +586,12 @@ const UserManagement = () => {
             name="country"
             label={t('userManagement.countryLabel')}
             rules={[{ required: true, message: t('userManagement.countryRequired') }]}
-            extra={!isRoot ? t('userManagement.countryHint') : ''}
+            extra={!canChangeCountry ? t('userManagement.countryHint') : ''}
           >
             <Select
               placeholder={t('userManagement.countryPlaceholder')}
               options={countryOptions}
-              disabled={!!editingUser || !isRoot}
+              disabled={!canChangeCountry}
             />
           </Form.Item>
           <Form.Item
