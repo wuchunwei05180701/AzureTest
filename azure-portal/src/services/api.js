@@ -303,13 +303,20 @@ export const libraryAPI = {
    * @param {string} docId - 文件 ID
    * @param {string} [country] - 國家代碼（僅 super_admin 可跨國）
    * @param {string} [filename] - 指定預覽的檔案名稱（多檔案時使用）
+   * @param {boolean} [record=true] - 是否記錄稽核日誌（縮圖載入時傳 false）
    */
-  preview: (docId, country, filename) =>
+  preview: (docId, country, filename, record = true) =>
     api.get(`/library/${docId}/preview`, {
       responseType: 'blob',
+      headers: {
+        // 防止瀏覽器快取，確保每次都發送請求到後端（record=true 時需要記錄稽核日誌）
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
       params: {
         ...(country ? { country } : {}),
         ...(filename ? { filename } : {}),
+        ...(record === false ? { record: false } : {}),
       },
     }),
 
@@ -372,6 +379,19 @@ export const libraryAPI = {
    */
   updateCatalog: (catalogId, data, country) =>
     api.put(`/library/catalogs/${catalogId}`, data, { params: country ? { country } : {} }),
+
+  /** 記錄文件點擊（開啟文件 Modal 時呼叫）
+   * @param {string} docId - 文件 ID
+   * @param {string} [country] - 國家代碼（僅 super_admin 可跨國）
+   */
+  recordView: (docId, country) =>
+    api.post(`/library/${docId}/view`, {}, { params: country ? { country } : {} }),
+
+  /** 取得圖書館統計資料
+   * @param {object} params - { country?, date_from?, date_to? }
+   */
+  getStats: (params = {}) =>
+    api.get('/library/stats/summary', { params }),
 };
 
 // ===== 對話 API =====

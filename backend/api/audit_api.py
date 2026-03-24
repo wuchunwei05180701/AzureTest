@@ -206,9 +206,12 @@ async def list_audit_actions(
         "library.delete":       "刪除文件",
         "library.update":       "更新文件",
         "library.auth_update":  "更新文件權限",
+        "library.view":         "點擊文件",
+        "library.preview":      "預覽文件",
         "announcement.create":  "新增公告",
         "announcement.update":  "更新公告",
         "announcement.delete":  "刪除公告",
+        "chat.send":            "發送聊天訊息",
         "chat.session_delete":  "刪除對話",
         "pii.detected_chat":    "聊天偵測到個資",
         "pii.blocked_upload":   "上傳因個資被阻擋",
@@ -283,9 +286,9 @@ async def export_audit_logs(
         )
         logs = logs_result.scalars().all()
 
-    # 產生 CSV
-    output = io.StringIO()
-    writer = csv.writer(output)
+    # 產生 CSV（使用 utf-8-sig 編碼，讓 Excel 正確識別中文）
+    str_buf = io.StringIO()
+    writer = csv.writer(str_buf)
 
     # 標題列
     writer.writerow([
@@ -304,14 +307,17 @@ async def export_audit_logs(
             log.ip_address or "",
             log.error_message or "",
             str(log.details) if log.details else "",
-            log.response_time_ms or "",
+            log.response_time_ms if log.response_time_ms is not None else "",
         ])
 
-    output.seek(0)
+    # 將字串以 utf-8-sig 編碼為 bytes（自動加入 BOM，Excel 才能正確顯示中文）
+    csv_bytes = str_buf.getvalue().encode("utf-8-sig")
+    output = io.BytesIO(csv_bytes)
+
     filename = f"audit_logs_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
 
     return StreamingResponse(
-        iter([output.getvalue()]),
+        output,
         media_type="text/csv; charset=utf-8-sig",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

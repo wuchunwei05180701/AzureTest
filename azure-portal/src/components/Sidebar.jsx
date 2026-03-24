@@ -12,6 +12,7 @@ import {
   DatabaseOutlined,
   TeamOutlined,
   AuditOutlined,
+  BarChartOutlined,
   DownOutlined,
   RightOutlined,
 } from '@ant-design/icons';
@@ -44,6 +45,7 @@ const Sidebar = ({ collapsed }) => {
   }
   if (hasPermission('manage_library')) {
     settingsChildren.push({ key: 'library-settings', icon: <DatabaseOutlined />, label: t('sidebar.librarySettings'), path: '/settings/library' });
+    settingsChildren.push({ key: 'library-stats', icon: <BarChartOutlined />, label: t('sidebar.libraryStats'), path: '/settings/library-stats' });
   }
   if (hasPermission('manage_users')) {
     settingsChildren.push({ key: 'user-management', icon: <TeamOutlined />, label: t('sidebar.userManagement'), path: '/settings/users' });

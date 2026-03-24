@@ -574,7 +574,7 @@ const LibrarySettings = () => {
                 onClick: () => Modal.confirm({
                   title: t('librarySettings.deleteDocument'),
                   onOk: () => handleDelete(r.id),
-                  okText: t('common.confirm'),
+                  okText: t('common.delete'),
                   cancelText: t('common.cancel'),
                   okButtonProps: { danger: true },
                 }),

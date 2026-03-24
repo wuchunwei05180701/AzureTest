@@ -270,14 +270,14 @@ const TopBar = ({ onToggleSidebar }) => {
       <div className="topbar-right">
         {user && (
           <>
-            {/* 國家選擇（Super Admin） */}
+            {/* 國家選擇（root / admin 可切換） */}
             {isSuperAdmin ? (
               <Select
                 value={selectedCountry}
                 onChange={setSelectedCountry}
                 placeholder={t('topbar.selectCountry')}
                 size="small"
-                style={{ width: 130 }}
+                style={{ width: 130, marginTop: 18 }}
                 options={countries.map((c) => ({
                   value: c.code,
                   label: `${t(`countries.${c.code}`) || c.name} (${c.code})`,
