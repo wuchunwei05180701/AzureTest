@@ -857,6 +857,58 @@ async def get_library_stats(
             elif row.action == AuditAction.LIBRARY_DOWNLOAD:
                 trend_map[date_str]["downloads"] = row.count
 
+        # 6. 以館為主的每日趨勢（日期 + 館名 + action 分組）
+        lib_trend_result = await session.execute(
+            select(
+                cast(GlobalAuditLog.timestamp, SADate).label("date"),
+                GlobalAuditLog.action,
+                func.count(GlobalAuditLog.log_id).label("count"),
+                lib_name_col,
+            )
+            .where(where_clause)
+            .group_by(
+                cast(GlobalAuditLog.timestamp, SADate),
+                GlobalAuditLog.action,
+                literal_column("details->>'library_name'"),
+            )
+            .order_by(cast(GlobalAuditLog.timestamp, SADate))
+        )
+        lib_trend_rows = lib_trend_result.fetchall()
+
+        # 整理成 { library_name: { date: { views, downloads, previews } } }
+        lib_trend_map: dict = {}
+        all_dates = set()
+        for row in lib_trend_rows:
+            date_str = str(row.date)
+            lib_name = row.library_name or "（未知）"
+            all_dates.add(date_str)
+            if lib_name not in lib_trend_map:
+                lib_trend_map[lib_name] = {}
+            if date_str not in lib_trend_map[lib_name]:
+                lib_trend_map[lib_name][date_str] = {"date": date_str, "views": 0, "previews": 0, "downloads": 0}
+            if row.action == AuditAction.LIBRARY_VIEW:
+                lib_trend_map[lib_name][date_str]["views"] = row.count
+            elif row.action == AuditAction.LIBRARY_PREVIEW:
+                lib_trend_map[lib_name][date_str]["previews"] = row.count
+            elif row.action == AuditAction.LIBRARY_DOWNLOAD:
+                lib_trend_map[lib_name][date_str]["downloads"] = row.count
+
+        # 轉換成前端友好格式：每個館一條線
+        sorted_dates = sorted(all_dates)
+        daily_trend_by_library = []
+        for lib_name, date_map in lib_trend_map.items():
+            # 補齊所有日期（沒有資料的日期填 0）
+            trend_data = []
+            for d in sorted_dates:
+                if d in date_map:
+                    trend_data.append(date_map[d])
+                else:
+                    trend_data.append({"date": d, "views": 0, "previews": 0, "downloads": 0})
+            daily_trend_by_library.append({
+                "library_name": lib_name,
+                "trend": trend_data,
+            })
+
     # 排序 top_docs（依 views + downloads 總和）
     top_docs = sorted(
         doc_stats.values(),
@@ -877,6 +929,129 @@ async def get_library_stats(
             reverse=True,
         ),
         "daily_trend": list(trend_map.values()),
+        "daily_trend_by_library": daily_trend_by_library,
+    }
+
+
+@router.get("/stats/daily-detail")
+async def get_daily_detail(
+    date: str = Query(..., description="日期（YYYY-MM-DD 格式）"),
+    country: Optional[str] = Query(None, description="國家代碼（僅 root 可跨國）"),
+    payload: dict = Depends(get_current_user_payload),
+):
+    """
+    取得指定日期的文件閱覽/下載明細
+    回傳該天每個文件的 view/preview/download 次數及操作者
+    """
+    from core.database import GlobalSessionLocal
+    from models.global_models import GlobalAuditLog
+    from sqlalchemy import cast, Date as SADate
+
+    role = payload.get("role", "user")
+    user_country = payload.get("country", "")
+
+    if role == "root":
+        target_country = country
+    else:
+        target_country = user_country or "TW"
+
+    # 解析日期
+    try:
+        from datetime import date as date_type
+        target_date = date_type.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"日期格式錯誤：{date}，請使用 YYYY-MM-DD")
+
+    library_actions = [
+        AuditAction.LIBRARY_VIEW,
+        AuditAction.LIBRARY_PREVIEW,
+        AuditAction.LIBRARY_DOWNLOAD,
+    ]
+
+    async with GlobalSessionLocal() as session:
+        base_conditions = [
+            GlobalAuditLog.action.in_(library_actions),
+            GlobalAuditLog.result == "success",
+            cast(GlobalAuditLog.timestamp, SADate) == target_date,
+        ]
+        if target_country:
+            base_conditions.append(GlobalAuditLog.country_code == target_country)
+
+        where_clause = and_(*base_conditions)
+
+        # 查詢該天所有圖書館操作記錄
+        result = await session.execute(
+            select(
+                GlobalAuditLog.target,
+                GlobalAuditLog.action,
+                GlobalAuditLog.user_email,
+                GlobalAuditLog.timestamp,
+                GlobalAuditLog.details,
+            )
+            .where(where_clause)
+            .order_by(GlobalAuditLog.timestamp.desc())
+            .limit(500)
+        )
+        rows = result.fetchall()
+
+    # 整理成文件維度的統計
+    doc_map: dict = {}
+    for row in rows:
+        doc_id = row.target
+        if doc_id not in doc_map:
+            doc_name = ""
+            library_name = ""
+            if row.details:
+                doc_name = row.details.get("doc_name", "")
+                library_name = row.details.get("library_name", "")
+            doc_map[doc_id] = {
+                "doc_id": doc_id,
+                "doc_name": doc_name,
+                "library_name": library_name,
+                "views": 0,
+                "previews": 0,
+                "downloads": 0,
+                "users": set(),
+                "records": [],
+            }
+        entry = doc_map[doc_id]
+        # 補充名稱（如果之前沒取到）
+        if not entry["doc_name"] and row.details:
+            entry["doc_name"] = row.details.get("doc_name", "")
+            entry["library_name"] = row.details.get("library_name", "")
+
+        if row.action == AuditAction.LIBRARY_VIEW:
+            entry["views"] += 1
+        elif row.action == AuditAction.LIBRARY_PREVIEW:
+            entry["previews"] += 1
+        elif row.action == AuditAction.LIBRARY_DOWNLOAD:
+            entry["downloads"] += 1
+
+        entry["users"].add(row.user_email)
+        action_label = {
+            AuditAction.LIBRARY_VIEW: "點擊",
+            AuditAction.LIBRARY_PREVIEW: "預覽",
+            AuditAction.LIBRARY_DOWNLOAD: "下載",
+        }.get(row.action, row.action)
+        entry["records"].append({
+            "action": action_label,
+            "user": row.user_email,
+            "time": row.timestamp.strftime("%H:%M:%S") if row.timestamp else "",
+        })
+
+    # 轉換 set → list，排序
+    docs = []
+    for entry in doc_map.values():
+        entry["users"] = list(entry["users"])
+        entry["total"] = entry["views"] + entry["previews"] + entry["downloads"]
+        docs.append(entry)
+
+    docs.sort(key=lambda x: x["total"], reverse=True)
+
+    return {
+        "date": date,
+        "total_records": len(rows),
+        "docs": docs,
     }
 
 

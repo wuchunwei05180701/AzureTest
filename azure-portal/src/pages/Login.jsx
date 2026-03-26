@@ -46,6 +46,17 @@ const Login = () => {
     return () => clearInterval(timer);
   }, [countdown]);
 
+  // 通用錯誤訊息提取（處理 FastAPI 422 validation error 的陣列格式 detail）
+  const extractErrorMsg = (error, fallback) => {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail) && detail.length > 0) {
+      // FastAPI validation error: [{type, loc, msg, input}, ...]
+      return detail.map(e => e.msg || JSON.stringify(e)).join('; ');
+    }
+    return fallback;
+  };
+
   // Step 1: 取得驗證碼
   const handleRequestOTP = useCallback(async () => {
     if (!email || !email.trim()) {
@@ -75,7 +86,7 @@ const Login = () => {
         setOtpCode('');
       }
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || t('login.sendFailed');
+      const errorMsg = extractErrorMsg(error, t('login.sendFailed'));
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -99,7 +110,7 @@ const Login = () => {
       message.success(t('login.loginSuccess'));
       navigate('/', { replace: true });
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || t('login.otpError');
+      const errorMsg = extractErrorMsg(error, t('login.otpError'));
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -124,7 +135,7 @@ const Login = () => {
         setOtpCode('');
       }
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || t('login.resendFailed');
+      const errorMsg = extractErrorMsg(error, t('login.resendFailed'));
       message.error(errorMsg);
     } finally {
       setLoading(false);

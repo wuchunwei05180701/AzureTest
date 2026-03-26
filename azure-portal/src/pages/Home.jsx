@@ -130,31 +130,31 @@ const Home = () => {
       setLatestDocs(docs);
     }
 
-    // 為有 PDF 檔案的文件載入縮圖
-    const thumbnails = {};
-    await Promise.allSettled(
-      docs.map(async (doc) => {
-        // 找到第一個 PDF 檔案
-        const pdfFile = doc.files?.find((f) =>
-          f.filename?.toLowerCase().endsWith('.pdf')
-        );
-        if (!pdfFile) return;
-        try {
-          const res = await libraryAPI.preview(doc.id, country, pdfFile.filename);
-          const blob = new Blob([res.data], { type: 'application/pdf' });
-          thumbnails[doc.id] = URL.createObjectURL(blob);
-        } catch (err) {
-          console.warn(`文件 ${doc.id} PDF 縮圖載入失敗:`, err);
-        }
-      })
-    );
+    // 先結束 loading，讓頁面立即顯示
+    setLoading(false);
+
+    // 清理舊的 blob URL
     setDocThumbnails((prev) => {
-      // 清理舊的 blob URL
       Object.values(prev).forEach((url) => URL.revokeObjectURL(url));
-      return thumbnails;
+      return {};
     });
 
-    setLoading(false);
+    // 為有 PDF 檔案的文件載入縮圖（背景非同步，逐一更新）
+    docs.forEach(async (doc) => {
+      // 找到第一個 PDF 檔案
+      const pdfFile = doc.files?.find((f) =>
+        f.filename?.toLowerCase().endsWith('.pdf')
+      );
+      if (!pdfFile) return;
+      try {
+        const res = await libraryAPI.preview(doc.id, country, pdfFile.filename, false);
+        const blob = new Blob([res.data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        setDocThumbnails((prev) => ({ ...prev, [doc.id]: url }));
+      } catch (err) {
+        console.warn(`文件 ${doc.id} PDF 縮圖載入失敗:`, err);
+      }
+    });
   };
 
   useEffect(() => {

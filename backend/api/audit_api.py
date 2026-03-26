@@ -19,7 +19,7 @@ from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
 from core.database import GlobalSessionLocal
-from core.permissions import require_any_permission
+from core.permissions import require_permission
 from core.security import get_current_user_payload
 from models.global_models import GlobalAuditLog
 from models.schemas import MessageResponse
@@ -80,7 +80,7 @@ async def list_audit_logs(
     target: Optional[str] = Query(None, description="操作對象（模糊搜尋）"),
     date_from: Optional[str] = Query(None, description="開始時間（ISO 8601，例如 2026-03-01T00:00:00Z）"),
     date_to: Optional[str] = Query(None, description="結束時間（ISO 8601）"),
-    payload: dict = Depends(require_any_permission("manage_users", "cross_country_logs")),
+    payload: dict = Depends(require_permission("cross_country_logs")),
 ):
     """
     查詢稽核日誌（分頁）
@@ -173,7 +173,7 @@ async def list_audit_logs(
 
 @router.get("/actions")
 async def list_audit_actions(
-    payload: dict = Depends(require_any_permission("manage_users", "cross_country_logs")),
+    payload: dict = Depends(require_permission("cross_country_logs")),
 ):
     """
     取得所有已記錄的 action 類型列表（供前端篩選下拉選單用）
@@ -235,7 +235,7 @@ async def export_audit_logs(
     target: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    payload: dict = Depends(require_any_permission("manage_users", "cross_country_logs")),
+    payload: dict = Depends(require_permission("cross_country_logs")),
 ):
     """
     匯出稽核日誌為 CSV（最多 5000 筆）

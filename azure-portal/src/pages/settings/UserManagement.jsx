@@ -131,9 +131,30 @@ const UserManagement = () => {
     });
   };
 
+  // ===== 檢查是否為跨國使用者（admin 可看但不可操作）=====
+  const isCrossCountry = (record) => {
+    return isAdmin && record.country !== myCountry;
+  };
+
   // ===== 檢查是否可操作目標使用者 =====
   const canOperate = (record) => {
-    return canOperateUser(myRole, myEmail, record.role, record.email);
+    // 基本角色階層檢查
+    if (!canOperateUser(myRole, myEmail, record.role, record.email)) {
+      return false;
+    }
+    // 國家隔離：admin 只能操作自己國家的使用者（root 不受限）
+    if (isCrossCountry(record)) {
+      return false;
+    }
+    return true;
+  };
+
+  // 取得不可操作的原因提示文字
+  const getDisabledTooltip = (record) => {
+    if (isCrossCountry(record)) {
+      return t('userManagement.crossCountryReadonly');
+    }
+    return t('common.insufficientPermission');
   };
 
   // ===== 新增使用者 =====
@@ -352,7 +373,7 @@ const UserManagement = () => {
         if (!operable) {
           // 不可操作的使用者：顯示唯讀 Tag
           return (
-            <Tooltip title={t('userManagement.cannotChangeRole')}>
+            <Tooltip title={getDisabledTooltip(record)}>
               <Tag
                 color={ROLE_COLORS[role]}
                 icon={<LockOutlined />}
@@ -412,7 +433,7 @@ const UserManagement = () => {
         const operable = canOperate(record);
         return (
           <Space>
-            <Tooltip title={!operable ? t('common.insufficientPermission') : ''}>
+            <Tooltip title={!operable ? getDisabledTooltip(record) : ''}>
               <Button
                 type="text"
                 icon={<EditOutlined />}
@@ -436,7 +457,7 @@ const UserManagement = () => {
                 </Button>
               </Popconfirm>
             ) : (
-              <Tooltip title={t('common.insufficientPermission')}>
+              <Tooltip title={getDisabledTooltip(record)}>
                 <Button
                   type="text"
                   icon={<DeleteOutlined />}
