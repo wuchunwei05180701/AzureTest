@@ -460,6 +460,7 @@ const en = {
     emailExists: 'This email already exists',
     cannotEditUser: 'Insufficient permission: cannot edit this user',
     cannotChangeRole: 'Insufficient permission to change this user\'s role',
+    crossCountryReadonly: 'This user belongs to another country (view only)',
     totalCount: 'Total: {total} | Active: {active}',
   },
 

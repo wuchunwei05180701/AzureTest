@@ -11,8 +11,6 @@ import {
   DownloadOutlined,
   EyeOutlined,
   LeftOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   FileOutlined,
   LoadingOutlined,
   PictureOutlined,
@@ -122,6 +120,9 @@ const Library = () => {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [pageMap, setPageMap] = useState({});
 
+  // 展開館名時，每個文件的 PDF 縮圖 blob URL map: { docId: blobUrl }
+  const [docThumbnails, setDocThumbnails] = useState({});
+
   // PDF 縮圖用的 blob URL
   const [thumbnailUrl, setThumbnailUrl] = useState(null);
   const [thumbnailLoading, setThumbnailLoading] = useState(false);
@@ -156,6 +157,38 @@ const Library = () => {
       setLoading(false);
     }
   };
+
+  // 當 selectedLibrary 改變時，背景載入該館所有文件的 PDF 縮圖
+  useEffect(() => {
+    // 清理舊的 blob URL
+    setDocThumbnails((prev) => {
+      Object.values(prev).forEach((url) => URL.revokeObjectURL(url));
+      return {};
+    });
+
+    if (!selectedLibrary) return;
+
+    // 為有 PDF 檔案的文件載入縮圖（背景非同步，逐一更新）
+    selectedLibrary.documents.forEach(async (doc) => {
+      const pdfFile = doc.files?.find((f) => isPdfFile(f.filename));
+      if (!pdfFile) return;
+      try {
+        const res = await libraryAPI.preview(doc.id, effectiveCountry, pdfFile.filename, false);
+        const blob = new Blob([res.data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        setDocThumbnails((prev) => ({ ...prev, [doc.id]: url }));
+      } catch (err) {
+        console.warn(`文件 ${doc.id} PDF 縮圖載入失敗:`, err);
+      }
+    });
+
+    return () => {
+      setDocThumbnails((prev) => {
+        Object.values(prev).forEach((url) => URL.revokeObjectURL(url));
+        return {};
+      });
+    };
+  }, [selectedLibrary, effectiveCountry]);
 
   useEffect(() => {
     setSelectedLibrary(null);
@@ -424,26 +457,37 @@ const Library = () => {
           })}
         </div>
       ) : (
-        /* ===== 展開館名 - 卡片式文件 ===== */
+        /* ===== 展開館名 - 卡片式文件（首頁風格：縮圖 + 檔名 + 簡介） ===== */
         <div className="library-expanded">
           <h3 className="library-expanded-title">{selectedLibrary.name}</h3>
           <div className="library-doc-grid">
             {selectedLibrary.documents.map((doc) => (
               <div
                 key={doc.id}
-                className="library-doc-card"
+                className="library-doc-card-v2"
                 onClick={() => handleDocClick(doc)}
               >
-                <div className="library-doc-card-icon">
-                  {React.cloneElement(getFileIcon(doc.files?.[0]?.filename || doc.name), { style: { fontSize: 36 } })}
+                <div className="library-doc-card-cover">
+                  {docThumbnails[doc.id] ? (
+                    <PdfThumbnail
+                      url={docThumbnails[doc.id]}
+                      width={200}
+                      className="library-doc-card-thumbnail"
+                    />
+                  ) : doc.files?.some((f) => isPdfFile(f.filename)) ? (
+                    <>
+                      <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
+                      <span>{t('common.loading')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileOutlined style={{ fontSize: 36, color: '#bbb' }} />
+                      <span>{t('home.noPreview')}</span>
+                    </>
+                  )}
                 </div>
-                <div className="library-doc-card-name">{doc.name}</div>
-                <div className="library-doc-card-desc">{doc.description}</div>
-                {doc.files?.length > 1 && (
-                  <div className="library-doc-card-badge">
-                    <Tag size="small" color="blue">{t('libraryPage.multipleFiles', { count: doc.files.length })}</Tag>
-                  </div>
-                )}
+                <div className="library-doc-card-v2-name">{doc.name}</div>
+                <div className="library-doc-card-v2-desc">{doc.description}</div>
               </div>
             ))}
           </div>
@@ -492,16 +536,6 @@ const Library = () => {
             {/* 文件資訊 */}
             <div className="pdf-preview-info">
               <p><strong>{t('libraryPage.description')}：</strong>{selectedDoc.description}</p>
-              <p>
-                <strong>{t('libraryPage.fileStatus')}：</strong>
-                {selectedDoc.hasFile ? (
-                  <Tag icon={<CheckCircleOutlined />} color="success">
-                    {t('libraryPage.uploaded')}{selectedDoc.files?.length > 1 ? ` (${selectedDoc.files.length} ${t('common.files')})` : ''}
-                  </Tag>
-                ) : (
-                  <Tag icon={<CloseCircleOutlined />} color="default">{t('libraryPage.notUploaded')}</Tag>
-                )}
-              </p>
             </div>
 
             {/* 附件區域 — 縮圖封面 */}

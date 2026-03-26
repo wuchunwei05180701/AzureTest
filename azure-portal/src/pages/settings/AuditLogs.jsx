@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Table,
   Button,
@@ -51,9 +52,10 @@ const getActionColor = (action) => {
 };
 
 const AuditLogs = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, hasPermission } = useAuth();
   const { countries: countryList } = useCountry();
   const { t } = useLanguage();
+  const navigate = useNavigate();
 
   const isRoot = currentUser?.role === 'root';
 

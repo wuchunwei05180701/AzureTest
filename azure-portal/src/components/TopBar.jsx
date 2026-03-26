@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MenuOutlined,
   UserOutlined,
@@ -50,6 +51,7 @@ const fetchAvatarBlobUrl = async () => {
 };
 
 const TopBar = ({ onToggleSidebar }) => {
+  const navigate = useNavigate();
   const { user, logout, updateProfile, uploadAvatar, deleteAvatar } = useAuth();
   const { countries, selectedCountry, displayCountry, isSuperAdmin, setSelectedCountry } = useCountry();
   const { t, language, setLanguage } = useLanguage();
@@ -253,7 +255,7 @@ const TopBar = ({ onToggleSidebar }) => {
     <div className="topbar">
       <div className="topbar-left">
         <MenuOutlined className="topbar-hamburger" onClick={onToggleSidebar} />
-        <div className="topbar-logo">
+        <div className="topbar-logo" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
           <span className="topbar-logo-icon">N</span>
           <span className="topbar-logo-text">Web Portal</span>
         </div>

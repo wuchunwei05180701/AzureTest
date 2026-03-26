@@ -15,7 +15,7 @@ __pycache__/
 dist/
 dist-ssr/
 build/
-# backend/static/ is committed (frontend build output for pm2 serve)
+backend/static/
 
 # Uploaded files
 backend/uploads/
@@ -52,15 +52,8 @@ lerna-debug.log*
 Thumbs.db
 .DS_Store
 
-# Claude Code
-.claude/plan/
-
-# Dev logs
-.dev-logs/
-
 # Specific files to ignore
 Azure.md.txt
 CTBC portal.txt
 資料庫設計.md
-.env.uat
 *.xlsx

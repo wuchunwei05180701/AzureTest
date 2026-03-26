@@ -36,10 +36,15 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      removeToken();
-      // 避免在 login 頁面重複跳轉
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/AzureTest/login';
+      // 排除登入相關 API（verify-otp 的 401 是正常業務邏輯：OTP 驗證失敗）
+      const url = error.config?.url || '';
+      const isAuthLoginAPI = url.includes('/auth/verify-otp') || url.includes('/auth/request-otp');
+      if (!isAuthLoginAPI) {
+        removeToken();
+        // 避免在 login 頁面重複跳轉
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/AzureTest/login';
+        }
       }
     }
     return Promise.reject(error);
@@ -392,6 +397,12 @@ export const libraryAPI = {
    */
   getStats: (params = {}) =>
     api.get('/library/stats/summary', { params }),
+
+  /** 取得指定日期的文件閱覽/下載明細
+   * @param {object} params - { date, country? }
+   */
+  getDailyDetail: (params = {}) =>
+    api.get('/library/stats/daily-detail', { params }),
 };
 
 // ===== 對話 API =====

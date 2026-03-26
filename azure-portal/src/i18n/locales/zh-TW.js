@@ -463,6 +463,7 @@ const zhTW = {
     emailExists: '此 Email 已存在',
     cannotEditUser: '權限不足：無法編輯此使用者',
     cannotChangeRole: '權限不足，無法變更此使用者的角色',
+    crossCountryReadonly: '此使用者屬於其他國家，僅供檢視',
     totalCount: '總計: {total} 人 | 啟用: {active} 人',
   },
 

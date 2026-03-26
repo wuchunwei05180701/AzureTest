@@ -63,7 +63,7 @@ const App = () => {
                         <Route element={<ProtectedRoute requiredPermission="manage_users" />}>
                           <Route path="settings/users" element={<UserManagement />} />
                         </Route>
-                        <Route element={<ProtectedRoute requiredPermission="manage_users" />}>
+                        <Route element={<ProtectedRoute requiredPermission="cross_country_logs" />}>
                           <Route path="settings/audit-logs" element={<AuditLogs />} />
                         </Route>
 

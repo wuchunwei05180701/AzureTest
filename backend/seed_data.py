@@ -232,13 +232,11 @@ def seed_agent_acl(session: Session, agent_ids: list):
     print("\n🔐 正在插入 Agent ACL 資料...")
     from models.global_models import AgentACL
 
-    all_roles = ["user", "admin", "root"]
-
     for agent_id in agent_ids:
         acl = AgentACL(
             agent_id=agent_id,
             allowed_users={
-                "authorized_roles": all_roles,
+                "authorized_roles": [],
                 "authorized_users": [],
                 "exception_list": [],
             },
