@@ -411,6 +411,12 @@ export const chatAPI = {
   send: (data) =>
     api.post('/chat', data),
 
+  /** 取得 Agent 使用統計摘要（需要 manage_agent_permissions 權限）
+   * @param {object} params - { country?, date_from?, date_to? }
+   */
+  getStats: (params = {}) =>
+    api.get('/chat/stats/summary', { params }),
+
   /** [Deprecated] 取得對話歷史列表（舊版，請改用 sessions） */
   history: () =>
     api.get('/chat/history'),

@@ -35,15 +35,19 @@ async def list_agents(payload: dict = Depends(get_current_user_payload)):
         )
         all_agents = result.scalars().all()
 
-        # 所有角色都需要檢查 ACL（包括 root / admin）
+        # 一次批次查詢所有 ACL，建立 agent_id → allowed_users 的 map
+        # 避免在 for loop 中做 N+1 查詢導致 async cursor 狀態錯亂
+        acl_result = await session.execute(select(AgentACL))
+        acl_map = {
+            str(acl.agent_id): acl.allowed_users
+            for acl in acl_result.scalars().all()
+        }
+
+        # 用 map 對應每個 agent 的 ACL，確保資料不會錯位
         authorized_agents = []
         for agent in all_agents:
-            acl_result = await session.execute(
-                select(AgentACL).where(AgentACL.agent_id == agent.agent_id)
-            )
-            acl = acl_result.scalar_one_or_none()
-
-            if acl and _check_acl(acl.allowed_users, email, role):
+            acl_data = acl_map.get(str(agent.agent_id))
+            if acl_data and _check_acl(acl_data, email, role):
                 authorized_agents.append(agent)
 
         return [_agent_to_response(a) for a in authorized_agents]

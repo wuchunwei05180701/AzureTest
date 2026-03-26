@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'; // useMemo 保留供 filteredSessions
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Tag, Input, Select, Empty, Spin, Popconfirm, Tooltip, message as antdMessage } from 'antd';
 import {
   SendOutlined,
@@ -12,8 +13,9 @@ import {
   DeleteOutlined,
   PaperClipOutlined,
   CloseCircleFilled,
+  LeftOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
 import { useChat } from '../contexts/ChatContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import './AgentChat.css';
@@ -21,6 +23,7 @@ import './AgentChat.css';
 const { TextArea } = Input;
 
 const AgentChat = () => {
+  const navigate = useNavigate();
   const { t, language } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -48,6 +51,8 @@ const AgentChat = () => {
   // ── 本地 UI 狀態（不需要跨頁面保留）──────────────────────
   const [inputValue, setInputValue] = useState('');
   const [sessionSearchText, setSessionSearchText] = useState('');
+  const [sessionPanelCollapsed, setSessionPanelCollapsed] = useState(false);
+  const [agentPanelCollapsed, setAgentPanelCollapsed] = useState(false);
 
   // ── Refs ─────────────────────────────────────────────────────
   const messagesEndRef = useRef(null);
@@ -198,13 +203,37 @@ const AgentChat = () => {
   return (
     <div className="agent-chat-page">
       {/* 左側 Session 面板 */}
-      <div className="chat-session-panel">
+      <div className={`chat-session-panel${sessionPanelCollapsed ? ' chat-panel-collapsed' : ''}`}>
         <div className="session-panel-header">
-          <span className="session-panel-title">
-            <SelectOutlined style={{ marginRight: 6 }} />
-            {t('agentChat.chatSessions')}
-          </span>
-          {selectedAgent && (
+          {!sessionPanelCollapsed && (
+            <span className="session-panel-title">
+              <SelectOutlined style={{ marginRight: 6 }} />
+              {t('agentChat.chatSessions')}
+            </span>
+          )}
+          <div className="session-panel-header-actions">
+            {!sessionPanelCollapsed && selectedAgent && (
+              <Button
+                icon={<PlusOutlined />}
+                onClick={handleNewChat}
+                disabled={isStreaming}
+                size="small"
+                type="text"
+                title={t('agentChat.newChat')}
+              />
+            )}
+            <Button
+              icon={sessionPanelCollapsed ? <RightOutlined /> : <LeftOutlined />}
+              onClick={() => setSessionPanelCollapsed(!sessionPanelCollapsed)}
+              size="small"
+              type="text"
+              title={sessionPanelCollapsed ? t('agentChat.chatSessions') : t('common.collapse')}
+            />
+          </div>
+        </div>
+        {/* 折疊時在 header 下方顯示新對話按鈕 */}
+        {sessionPanelCollapsed && selectedAgent && (
+          <div className="session-panel-collapsed-actions">
             <Button
               icon={<PlusOutlined />}
               onClick={handleNewChat}
@@ -213,10 +242,10 @@ const AgentChat = () => {
               type="text"
               title={t('agentChat.newChat')}
             />
-          )}
-        </div>
+          </div>
+        )}
         {/* 搜尋列 */}
-        {selectedAgent && (
+        {!sessionPanelCollapsed && selectedAgent && (
           <div className="session-search-bar">
             <Input
               size="small"
@@ -228,56 +257,66 @@ const AgentChat = () => {
             />
           </div>
         )}
-        <div className="session-panel-list">
-          {!selectedAgent ? (
-            <div className="session-empty-hint">
-              {t('agentChat.selectAgentForSessions')}
-            </div>
-          ) : sessionsLoading ? (
-            <div className="session-loading">
-              <Spin size="small" />
-              <span style={{ marginLeft: 8 }}>{t('agentChat.loadingSessions')}</span>
-            </div>
-          ) : filteredSessions.length === 0 ? (
-            <div className="session-empty-hint">
-              {sessions.length === 0 ? t('agentChat.noSessions') : t('common.noData')}
-            </div>
-          ) : (
-            filteredSessions.map((session) => (
-              <div
-                key={session.sessionId}
-                className={`session-panel-item ${sessionId === session.sessionId ? 'active' : ''}`}
-                onClick={() => handleSelectSession(session)}
-              >
-                <div className="session-item-content">
-                  <div className="session-item-title">
-                    <MessageOutlined style={{ marginRight: 6, fontSize: 12, opacity: 0.6 }} />
-                    {session.lastMessagePreview || session.title || t('agentChat.untitledSession')}
-                  </div>
-                  <div className="session-item-meta">
-                    <ClockCircleOutlined style={{ marginRight: 4, fontSize: 11 }} />
-                    <span>{session.formattedTime}</span>
-                    {session.messageCount > 0 && (
-                      <Tag color="blue" style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px' }}>
-                        {session.messageCount} {t('agentChat.messagesUnit')}
-                      </Tag>
-                    )}
-                  </div>
-                </div>
-                <div className="session-item-actions" onClick={(e) => e.stopPropagation()}>
-                  <Popconfirm
-                    title={t('agentChat.confirmDeleteSession')}
-                    onConfirm={(e) => handleDeleteSession(session.sessionId, e)}
-                    okText={t('common.confirm')}
-                    cancelText={t('common.cancel')}
-                  >
-                    <DeleteOutlined className="session-delete-btn" />
-                  </Popconfirm>
-                </div>
+        {sessionPanelCollapsed && (
+          <div
+            className="panel-collapsed-label"
+            onClick={() => setSessionPanelCollapsed(false)}
+          >
+            {t('agentChat.chatSessions')}
+          </div>
+        )}
+        {!sessionPanelCollapsed && (
+          <div className="session-panel-list">
+            {!selectedAgent ? (
+              <div className="session-empty-hint">
+                {t('agentChat.selectAgentForSessions')}
               </div>
-            ))
-          )}
-        </div>
+            ) : sessionsLoading ? (
+              <div className="session-loading">
+                <Spin size="small" />
+                <span style={{ marginLeft: 8 }}>{t('agentChat.loadingSessions')}</span>
+              </div>
+            ) : filteredSessions.length === 0 ? (
+              <div className="session-empty-hint">
+                {sessions.length === 0 ? t('agentChat.noSessions') : t('common.noData')}
+              </div>
+            ) : (
+              filteredSessions.map((session) => (
+                <div
+                  key={session.sessionId}
+                  className={`session-panel-item ${sessionId === session.sessionId ? 'active' : ''}`}
+                  onClick={() => handleSelectSession(session)}
+                >
+                  <div className="session-item-content">
+                    <div className="session-item-title">
+                      <MessageOutlined style={{ marginRight: 6, fontSize: 12, opacity: 0.6 }} />
+                      {session.lastMessagePreview || session.title || t('agentChat.untitledSession')}
+                    </div>
+                    <div className="session-item-meta">
+                      <ClockCircleOutlined style={{ marginRight: 4, fontSize: 11 }} />
+                      <span>{session.formattedTime}</span>
+                      {session.messageCount > 0 && (
+                        <Tag color="blue" style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px' }}>
+                          {session.messageCount} {t('agentChat.messagesUnit')}
+                        </Tag>
+                      )}
+                    </div>
+                  </div>
+                  <div className="session-item-actions" onClick={(e) => e.stopPropagation()}>
+                    <Popconfirm
+                      title={t('agentChat.confirmDeleteSession')}
+                      onConfirm={(e) => handleDeleteSession(session.sessionId, e)}
+                      okText={t('common.confirm')}
+                      cancelText={t('common.cancel')}
+                    >
+                      <DeleteOutlined className="session-delete-btn" />
+                    </Popconfirm>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* 主聊天區 */}
@@ -418,6 +457,7 @@ const AgentChat = () => {
               }
             }}
             autoSize={{ minRows: 1, maxRows: 4 }}
+            style={{ minHeight: 36 }}
             disabled={!selectedAgent || isStreaming}
           />
           {isStreaming ? (
@@ -440,67 +480,88 @@ const AgentChat = () => {
                 background: 'var(--primary-color)',
                 borderColor: 'var(--primary-color)',
               }}
-            >
-              {t('common.send')}
-            </Button>
+            />
           )}
         </div>
       </div>
 
       {/* 右側 Agent 列表 */}
-      <div className="chat-agent-panel">
+      <div className={`chat-agent-panel${agentPanelCollapsed ? ' chat-panel-collapsed' : ''}`}>
         <div className="agent-panel-header">
-          <span className="agent-panel-title">
+          <Button
+            icon={agentPanelCollapsed ? <LeftOutlined /> : <RightOutlined />}
+            onClick={() => setAgentPanelCollapsed(!agentPanelCollapsed)}
+            size="small"
+            type="text"
+            title={agentPanelCollapsed ? t('agentChat.availableAgents') : t('common.collapse')}
+          />
+          {!agentPanelCollapsed && (
+            <>
+              <span className="agent-panel-title">
+                {t('agentChat.availableAgents')}
+              </span>
+              <span
+                className="agent-panel-view-all"
+                onClick={() => navigate('/agent-store')}
+                style={{ cursor: 'pointer' }}
+              >
+                {t('common.viewAll')}
+              </span>
+            </>
+          )}
+        </div>
+        {agentPanelCollapsed && (
+          <div
+            className="panel-collapsed-label"
+            onClick={() => setAgentPanelCollapsed(false)}
+          >
             {t('agentChat.availableAgents')}
-          </span>
-          <span className="agent-panel-view-all">{t('common.viewAll')}</span>
-        </div>
-        <div className="agent-panel-list">
-          {agents.map((agent) => (
-            <div
-              key={agent.id}
-              className={`agent-panel-item ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
-              onClick={() => handleSelectAgent(agent.id)}
-            >
+          </div>
+        )}
+        {!agentPanelCollapsed && (
+          <div className="agent-panel-list">
+            {agents.map((agent) => (
               <div
-                className="agent-panel-icon"
-                style={{
-                  background: agent.color + '20',
-                  color: agent.color,
-                }}
+                key={agent.id}
+                className={`agent-panel-item ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
+                onClick={() => handleSelectAgent(agent.id)}
               >
-                {agent.iconType === 'image_url' && agent.icon ? (
-                  <img src={agent.icon} alt={agent.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                ) : (
-                  agent.icon || '🤖'
-                )}
-              </div>
-              <div className="agent-panel-info">
-                <div className="agent-panel-name">{agent.name}</div>
-                <div className="agent-panel-meta">
-                  <span>{agent.model}</span>
-                  <Tag
-                    color="green"
-                    style={{ marginLeft: 6, fontSize: 11 }}
-                  >
-                    {t(`agentStore.status_${agent.status}`)}
-                  </Tag>
+                <div
+                  className="agent-panel-icon"
+                  style={{
+                    background: agent.color + '20',
+                    color: agent.color,
+                  }}
+                >
+                  {agent.icon}
                 </div>
+                <div className="agent-panel-info">
+                  <div className="agent-panel-name">{agent.name}</div>
+                  <div className="agent-panel-meta">
+                    <span>{agent.model}</span>
+                    <Tag
+                      color="green"
+                      style={{ marginLeft: 6, fontSize: 11 }}
+                    >
+                      {t(`agentStore.status_${agent.status}`)}
+                    </Tag>
+                  </div>
+                </div>
+                <Button
+                  type="primary"
+                  size="small"
+                  style={{
+                    background: 'var(--primary-color)',
+                    borderColor: 'var(--primary-color)',
+                    fontSize: 12,
+                  }}
+                >
+                  {t('common.chat')}
+                </Button>
               </div>
-              <Button
-                type="primary"
-                size="small"
-                style={{
-                  background: 'var(--primary-color)',
-                  borderColor: 'var(--primary-color)',
-                  fontSize: 12,
-                }}
-              >
-                {t('common.chat')}
-              </Button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

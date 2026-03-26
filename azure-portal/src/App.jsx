@@ -17,7 +17,7 @@ import Library from './pages/Library';
 import AnnouncementSettings from './pages/settings/AnnouncementSettings';
 import AgentPermissions from './pages/settings/AgentPermissions';
 import LibrarySettings from './pages/settings/LibrarySettings';
-import LibraryStats from './pages/settings/LibraryStats';
+import UsageStats from './pages/settings/UsageStats';
 import UserManagement from './pages/settings/UserManagement';
 import AuditLogs from './pages/settings/AuditLogs';
 
@@ -58,7 +58,9 @@ const App = () => {
                         </Route>
                         <Route element={<ProtectedRoute requiredPermission="manage_library" />}>
                           <Route path="settings/library" element={<LibrarySettings />} />
-                          <Route path="settings/library-stats" element={<LibraryStats />} />
+                        </Route>
+                        <Route element={<ProtectedRoute anyPermission={["manage_agent_permissions", "manage_library"]} />}>
+                          <Route path="settings/usage-stats" element={<UsageStats />} />
                         </Route>
                         <Route element={<ProtectedRoute requiredPermission="manage_users" />}>
                           <Route path="settings/users" element={<UserManagement />} />
