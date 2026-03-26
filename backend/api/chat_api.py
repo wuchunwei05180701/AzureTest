@@ -18,6 +18,7 @@ Agatha Public API 端點：
 import asyncio
 import json
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
@@ -30,6 +31,7 @@ from sqlalchemy import select
 from config import settings
 from core.database import GlobalSessionLocal
 from core.portal_mongo import get_sessions_collection, get_messages_collection
+from core.permissions import require_permission
 from core.security import get_current_user_payload
 from services.pii_service import get_pii_service
 from utils.audit_logger import audit_log, AuditAction
@@ -1036,3 +1038,194 @@ async def _get_session_as_chat_response(session_id: str, email: str) -> ChatResp
         created_at=session_doc.get("created_at"),
         updated_at=session_doc.get("updated_at"),
     )
+
+
+# ============================================================
+# Agent 使用統計 API
+# ============================================================
+
+
+@router.get("/stats/summary")
+async def get_agent_stats(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    country: Optional[str] = None,
+    payload: dict = Depends(require_permission("manage_agent_permissions")),
+):
+    """
+    取得 Agent 使用統計摘要（需要 manage_agent_permissions 權限）
+
+    回傳：
+    - summary: 總對話數、總訊息數、活躍使用者數、活躍 Agent 數
+    - by_agent: 各 Agent 的對話數、訊息數
+    - top_users: 最活躍使用者排行
+    - daily_trend: 每日對話趨勢（依 Agent 分組）
+    """
+    sessions_col = get_sessions_collection()
+    if sessions_col is None:
+        raise HTTPException(status_code=503, detail="對話歷史服務未啟用")
+
+    # 建立時間篩選條件
+    time_filter: dict = {}
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+            time_filter["$gte"] = dt_from
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+            time_filter["$lte"] = dt_to
+        except ValueError:
+            pass
+
+    match_stage: dict = {}
+    if time_filter:
+        match_stage["created_at"] = time_filter
+    if country:
+        match_stage["country"] = country
+
+    # ── 1. 總覽統計 ──────────────────────────────────────────
+    pipeline_summary = []
+    if match_stage:
+        pipeline_summary.append({"$match": match_stage})
+    pipeline_summary += [
+        {
+            "$group": {
+                "_id": None,
+                "total_sessions": {"$sum": 1},
+                "total_messages": {"$sum": "$message_count"},
+                "unique_users": {"$addToSet": "$user_email"},
+                "unique_agents": {"$addToSet": "$agent_id"},
+            }
+        }
+    ]
+    summary_result = await sessions_col.aggregate(pipeline_summary).to_list(1)
+    if summary_result:
+        s = summary_result[0]
+        summary = {
+            "total_sessions": s.get("total_sessions", 0),
+            "total_messages": s.get("total_messages", 0),
+            "active_users": len(s.get("unique_users", [])),
+            "active_agents": len(s.get("unique_agents", [])),
+        }
+    else:
+        summary = {"total_sessions": 0, "total_messages": 0, "active_users": 0, "active_agents": 0}
+
+    # ── 2. 各 Agent 統計 ─────────────────────────────────────
+    pipeline_by_agent = []
+    if match_stage:
+        pipeline_by_agent.append({"$match": match_stage})
+    pipeline_by_agent += [
+        {
+            "$group": {
+                "_id": {"agent_id": "$agent_id", "agent_name": "$agent_name"},
+                "sessions": {"$sum": 1},
+                "messages": {"$sum": "$message_count"},
+                "unique_users": {"$addToSet": "$user_email"},
+            }
+        },
+        {"$sort": {"sessions": -1}},
+    ]
+    by_agent_cursor = sessions_col.aggregate(pipeline_by_agent)
+    by_agent = []
+    async for doc in by_agent_cursor:
+        by_agent.append({
+            "agent_id": doc["_id"].get("agent_id", ""),
+            "agent_name": doc["_id"].get("agent_name", ""),
+            "sessions": doc.get("sessions", 0),
+            "messages": doc.get("messages", 0),
+            "unique_users": len(doc.get("unique_users", [])),
+        })
+
+    # ── 3. 最活躍使用者 Top 10 ───────────────────────────────
+    pipeline_top_users = []
+    if match_stage:
+        pipeline_top_users.append({"$match": match_stage})
+    pipeline_top_users += [
+        {
+            "$group": {
+                "_id": "$user_email",
+                "sessions": {"$sum": 1},
+                "messages": {"$sum": "$message_count"},
+                "agents_used": {"$addToSet": "$agent_id"},
+            }
+        },
+        {"$sort": {"sessions": -1}},
+        {"$limit": 10},
+    ]
+    top_users_cursor = sessions_col.aggregate(pipeline_top_users)
+    top_users = []
+    async for doc in top_users_cursor:
+        top_users.append({
+            "user_email": doc["_id"],
+            "sessions": doc.get("sessions", 0),
+            "messages": doc.get("messages", 0),
+            "agents_used": len(doc.get("agents_used", [])),
+        })
+
+    # ── 4. 每日趨勢（依 Agent 分組）─────────────────────────
+    pipeline_daily = []
+    if match_stage:
+        pipeline_daily.append({"$match": match_stage})
+    pipeline_daily += [
+        {
+            "$group": {
+                "_id": {
+                    "date": {
+                        "$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}
+                    },
+                    "agent_id": "$agent_id",
+                    "agent_name": "$agent_name",
+                },
+                "sessions": {"$sum": 1},
+                "messages": {"$sum": "$message_count"},
+            }
+        },
+        {"$sort": {"_id.date": 1}},
+    ]
+    daily_cursor = sessions_col.aggregate(pipeline_daily)
+
+    # 整理成「以 Agent 為主」的結構（同 LibraryStats 的 daily_trend_by_library）
+    agent_daily_map: dict = defaultdict(lambda: {"agent_id": "", "agent_name": "", "trend": {}})
+    async for doc in daily_cursor:
+        aid = doc["_id"].get("agent_id", "")
+        aname = doc["_id"].get("agent_name", "")
+        date = doc["_id"].get("date", "")
+        agent_daily_map[aid]["agent_id"] = aid
+        agent_daily_map[aid]["agent_name"] = aname
+        agent_daily_map[aid]["trend"][date] = {
+            "date": date,
+            "sessions": doc.get("sessions", 0),
+            "messages": doc.get("messages", 0),
+        }
+
+    # 收集所有日期，補齊缺失日期為 0
+    all_dates: set = set()
+    for v in agent_daily_map.values():
+        all_dates.update(v["trend"].keys())
+    sorted_dates = sorted(all_dates)
+
+    daily_trend_by_agent = []
+    for aid, data in agent_daily_map.items():
+        trend_list = []
+        for d in sorted_dates:
+            entry = data["trend"].get(d, {"date": d, "sessions": 0, "messages": 0})
+            trend_list.append(entry)
+        daily_trend_by_agent.append({
+            "agent_id": data["agent_id"],
+            "agent_name": data["agent_name"],
+            "trend": trend_list,
+        })
+    # 依總 sessions 降序排列
+    daily_trend_by_agent.sort(
+        key=lambda x: sum(t["sessions"] for t in x["trend"]), reverse=True
+    )
+
+    return {
+        "summary": summary,
+        "by_agent": by_agent,
+        "top_users": top_users,
+        "daily_trend_by_agent": daily_trend_by_agent,
+    }

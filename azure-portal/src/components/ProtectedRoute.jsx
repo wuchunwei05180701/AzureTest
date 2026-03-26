@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Spin, Result, Button } from 'antd';
+import { Spin } from 'antd';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
@@ -9,12 +9,15 @@ import { useAuth } from '../contexts/AuthContext';
  * 用法 1：僅檢查登入狀態（無 props）
  *   <Route element={<ProtectedRoute />}>
  *
- * 用法 2：同時檢查特定權限
+ * 用法 2：同時檢查特定權限（單一）
  *   <Route element={<ProtectedRoute requiredPermission="manage_users" />}>
  *
- * 當使用者已登入但缺少所需權限時，顯示 403 頁面並提供返回首頁按鈕。
+ * 用法 3：任一權限符合即可（多選一）
+ *   <Route element={<ProtectedRoute anyPermission={["manage_library", "manage_agent_permissions"]} />}>
+ *
+ * 當使用者已登入但缺少所需權限時，導回首頁。
  */
-const ProtectedRoute = ({ requiredPermission }) => {
+const ProtectedRoute = ({ requiredPermission, anyPermission }) => {
   const { isAuthenticated, loading, hasPermission } = useAuth();
   const location = useLocation();
 
@@ -40,9 +43,17 @@ const ProtectedRoute = ({ requiredPermission }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // 已登入但缺少所需權限 → 導回首頁
+  // 已登入但缺少所需權限（單一）→ 導回首頁
   if (requiredPermission && !hasPermission(requiredPermission)) {
     return <Navigate to="/" replace />;
+  }
+
+  // 已登入但缺少所需權限（多選一）→ 導回首頁
+  if (anyPermission && Array.isArray(anyPermission)) {
+    const hasAny = anyPermission.some((p) => hasPermission(p));
+    if (!hasAny) {
+      return <Navigate to="/" replace />;
+    }
   }
 
   // 已登入且有權限，渲染子路由

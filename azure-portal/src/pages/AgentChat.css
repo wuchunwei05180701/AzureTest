@@ -4,6 +4,49 @@
   height: calc(100vh - var(--topbar-height) - 48px);
 }
 
+/* ===== 折疊狀態的側欄 ===== */
+.chat-panel-collapsed {
+  width: 40px !important;
+  min-width: 40px !important;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-panel-collapsed .session-panel-header,
+.chat-panel-collapsed .agent-panel-header {
+  padding: 8px 4px;
+  justify-content: center;
+  border-bottom: none;
+}
+
+.chat-panel-collapsed .session-panel-header-actions,
+.chat-panel-collapsed .agent-panel-header {
+  justify-content: center;
+}
+
+/* 折疊後的直排文字標籤 */
+.panel-collapsed-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  cursor: pointer;
+  user-select: none;
+  padding: 12px 0;
+}
+
+.panel-collapsed-label:hover {
+  color: var(--primary-color);
+}
+
 /* ===== 左側 Session 面板 ===== */
 .chat-session-panel {
   width: 260px;
@@ -21,6 +64,21 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.session-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.session-panel-collapsed-actions {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -344,8 +402,8 @@
 .chat-input-area {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 8px;
+  padding: 10px 16px;
   border-top: 1px solid var(--border-color);
   background: #fafafa;
 }
@@ -451,4 +509,245 @@
   color: var(--text-light);
   display: flex;
   align-items: center;
+}
+
+/* ===== 中等螢幕（1366px 筆電）縮小側欄 ===== */
+@media (max-width: 1400px) {
+  .agent-chat-page {
+    gap: 14px;
+  }
+
+  /* 左側 Session 面板縮小 */
+  .chat-session-panel {
+    width: 200px;
+    min-width: 200px;
+  }
+
+  /* 右側 Agent 面板縮小 */
+  .chat-agent-panel {
+    width: 220px;
+    min-width: 220px;
+  }
+
+  .agent-panel-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+
+  .agent-panel-name {
+    font-size: 12px;
+  }
+
+  .agent-panel-meta {
+    font-size: 11px;
+  }
+
+  .agent-panel-item {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+}
+
+/* ===== 小螢幕（小筆電 / 1200px 以下）===== */
+@media (max-width: 1199px) {
+  .agent-chat-page {
+    gap: 10px;
+  }
+
+  /* 左側 Session 面板再縮 */
+  .chat-session-panel {
+    width: 180px;
+    min-width: 180px;
+  }
+
+  .session-panel-header {
+    padding: 12px 10px 10px;
+  }
+
+  .session-panel-title {
+    font-size: 13px;
+  }
+
+  .session-panel-item {
+    padding: 8px 8px;
+    gap: 6px;
+  }
+
+  .session-item-title {
+    font-size: 12px;
+  }
+
+  .session-item-meta {
+    font-size: 10px;
+  }
+
+  /* 右側 Agent 面板再縮 */
+  .chat-agent-panel {
+    width: 200px;
+    min-width: 200px;
+  }
+
+  .agent-panel-header {
+    padding: 12px 10px 10px;
+  }
+
+  .agent-panel-title {
+    font-size: 13px;
+  }
+
+  .agent-panel-view-all {
+    font-size: 12px;
+  }
+
+  .agent-panel-item {
+    padding: 7px 8px;
+    gap: 7px;
+    margin-bottom: 2px;
+  }
+
+  .agent-panel-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    border-radius: 6px;
+  }
+
+  .agent-panel-name {
+    font-size: 12px;
+  }
+
+  .agent-panel-meta {
+    font-size: 10px;
+  }
+
+  /* 主聊天區 header 縮小 */
+  .chat-header {
+    padding: 12px 14px;
+    gap: 8px;
+  }
+
+  .chat-messages {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .chat-input-area {
+    padding: 12px 14px;
+    gap: 8px;
+  }
+}
+
+/* ===== 很小螢幕（960px 以下）隱藏右側 Agent 面板 ===== */
+@media (max-width: 959px) {
+  .chat-agent-panel {
+    display: none;
+  }
+
+  .chat-session-panel {
+    width: 160px;
+    min-width: 160px;
+  }
+}
+
+/* ===== 大螢幕 scale up ===== */
+@media (min-width: 1280px) {
+  .agent-chat-page {
+    gap: 24px;
+    height: calc(100vh - var(--topbar-height) - 56px);
+  }
+
+  /* 左側 Session 面板 */
+  .chat-session-panel {
+    width: 300px;
+    min-width: 300px;
+    border-radius: 10px;
+  }
+
+  .session-panel-header {
+    padding: 20px 20px 14px;
+  }
+
+  .session-panel-title {
+    font-size: 15px;
+  }
+
+  .session-panel-item {
+    padding: 12px 12px;
+    gap: 10px;
+  }
+
+  .session-item-title {
+    font-size: 14px;
+  }
+
+  .session-item-meta {
+    font-size: 12px;
+  }
+
+  /* 主聊天區 */
+  .chat-main {
+    border-radius: 10px;
+  }
+
+  .chat-header {
+    padding: 20px 24px;
+    gap: 14px;
+  }
+
+  .chat-messages {
+    padding: 24px;
+    gap: 20px;
+  }
+
+  .chat-message-bubble {
+    font-size: 15px;
+    padding: 14px 18px;
+    border-radius: 14px;
+  }
+
+  .chat-input-area {
+    padding: 12px 20px;
+    gap: 10px;
+  }
+
+  /* 右側 Agent 面板 */
+  .chat-agent-panel {
+    width: 360px;
+    min-width: 360px;
+    border-radius: 10px;
+  }
+
+  .agent-panel-header {
+    padding: 20px 20px 14px;
+  }
+
+  .agent-panel-title {
+    font-size: 16px;
+  }
+
+  .agent-panel-view-all {
+    font-size: 14px;
+  }
+
+  .agent-panel-item {
+    padding: 12px 14px;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .agent-panel-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+    border-radius: 10px;
+  }
+
+  .agent-panel-name {
+    font-size: 14px;
+  }
+
+  .agent-panel-meta {
+    font-size: 13px;
+  }
 }

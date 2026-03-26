@@ -434,3 +434,84 @@
   text-overflow: ellipsis;
   max-width: 200px;
 }
+
+/* ===== 大螢幕 scale up ===== */
+@media (min-width: 1280px) {
+  .home-page {
+    gap: 32px;
+  }
+
+  .home-section {
+    padding: 28px 32px;
+    border-radius: 10px;
+  }
+
+  .section-title {
+    font-size: 20px;
+    margin-bottom: 20px;
+  }
+
+  .section-subtitle {
+    font-size: 15px;
+  }
+
+  .announcement-date {
+    font-size: 15px;
+    min-width: 100px;
+  }
+
+  .announcement-subject {
+    font-size: 15px;
+  }
+
+  .announcement-item {
+    padding: 10px 16px;
+  }
+
+  /* Agent 預覽卡片 */
+  .agent-preview-card {
+    padding: 16px 20px;
+    min-width: 340px;
+    max-width: 560px;
+    gap: 16px;
+  }
+
+  .agent-preview-icon {
+    width: 52px;
+    height: 52px;
+    font-size: 26px;
+    border-radius: 12px;
+  }
+
+  .agent-preview-name {
+    font-size: 15px;
+  }
+
+  .agent-model {
+    font-size: 13px;
+  }
+
+  /* 圖書館預覽卡片 */
+  .library-preview-card {
+    width: 240px;
+  }
+
+  .library-preview-cover {
+    width: 240px;
+    height: 310px;
+  }
+
+  .library-preview-cover .library-card-thumbnail canvas {
+    width: 240px !important;
+  }
+
+  .library-preview-name {
+    font-size: 14px;
+    max-width: 240px;
+  }
+
+  .library-preview-lib-name {
+    font-size: 13px;
+    max-width: 240px;
+  }
+}

@@ -180,3 +180,61 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== 大螢幕 scale up ===== */
+@media (min-width: 1280px) {
+  .agent-store-page {
+    gap: 28px;
+  }
+
+  .agent-store-header {
+    padding: 28px 32px;
+    border-radius: 10px;
+  }
+
+  .agent-store-title {
+    font-size: 24px;
+  }
+
+  .agent-store-count {
+    font-size: 14px;
+  }
+
+  .agent-store-search {
+    max-width: 480px;
+  }
+
+  .agent-store-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 24px;
+  }
+
+  .agent-card {
+    border-radius: 14px;
+  }
+
+  .agent-card-icon {
+    width: 80px;
+    height: 80px;
+    font-size: 40px;
+    border-radius: 20px;
+    margin-top: 28px;
+    margin-bottom: 14px;
+  }
+
+  .agent-card-name {
+    font-size: 16px;
+    padding: 0 20px;
+    margin-bottom: 10px;
+  }
+
+  .agent-card-description {
+    font-size: 14px;
+    padding: 0 24px;
+    margin-bottom: 20px;
+  }
+
+  .agent-card-footer {
+    padding: 14px 20px 20px;
+  }
+}

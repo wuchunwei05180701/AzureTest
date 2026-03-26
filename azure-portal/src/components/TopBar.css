@@ -79,7 +79,7 @@
 
 .topbar-right {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 12px;
 }
 
@@ -193,4 +193,55 @@
   color: var(--text-secondary);
   line-height: 1.4;
   margin-top: 2px;
+}
+
+/* ===== 大螢幕 scale up ===== */
+@media (min-width: 1280px) {
+  .topbar {
+    padding: 0 28px;
+  }
+
+  .topbar-left {
+    gap: 20px;
+  }
+
+  .topbar-hamburger {
+    font-size: 20px;
+  }
+
+  .topbar-logo-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+    border-radius: 8px;
+  }
+
+  .topbar-logo-text {
+    font-size: 18px;
+  }
+
+  .topbar-team-name {
+    font-size: 15px;
+  }
+
+  .topbar-team-badge {
+    font-size: 13px;
+    padding: 3px 10px;
+  }
+
+  .topbar-right {
+    gap: 16px;
+  }
+
+  .topbar-user-name {
+    font-size: 15px;
+  }
+
+  .topbar-user-role {
+    font-size: 13px;
+  }
+
+  .topbar-country-tag {
+    font-size: 13px;
+  }
 }

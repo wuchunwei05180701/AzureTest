@@ -267,3 +267,59 @@
     opacity: 1;
   }
 }
+
+/* ===== 大螢幕 scale up ===== */
+@media (min-width: 1280px) {
+  .chat-history-page {
+    gap: 28px;
+  }
+
+  .page-title {
+    font-size: 20px;
+  }
+
+  .history-list {
+    gap: 10px;
+  }
+
+  .history-item {
+    padding: 20px 28px;
+    gap: 18px;
+    border-radius: 10px;
+  }
+
+  .history-item-icon {
+    width: 52px;
+    height: 52px;
+    font-size: 24px;
+    border-radius: 12px;
+  }
+
+  .history-item-name {
+    font-size: 15px;
+    margin-bottom: 5px;
+  }
+
+  .history-item-preview {
+    font-size: 14px;
+  }
+
+  .history-item-time {
+    font-size: 13px;
+  }
+
+  .history-action-btn {
+    font-size: 18px;
+  }
+
+  /* Modal 對話詳情 */
+  .history-modal-bubble {
+    font-size: 15px;
+    padding: 12px 16px;
+  }
+
+  .history-modal-continue-btn.ant-btn {
+    height: 52px;
+    font-size: 17px;
+  }
+}

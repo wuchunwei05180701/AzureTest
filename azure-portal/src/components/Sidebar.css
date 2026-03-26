@@ -104,3 +104,41 @@
   margin: 2px 4px;
   padding: 12px 8px;
 }
+
+/* ===== 大螢幕 scale up ===== */
+@media (min-width: 1280px) {
+  .sidebar-collapsed {
+    width: 72px;
+    min-width: 72px;
+  }
+
+  .sidebar-item {
+    padding: 12px 24px;
+    font-size: 15px;
+    gap: 12px;
+  }
+
+  .sidebar-item.active {
+    margin: 2px 10px;
+    padding: 12px 14px;
+  }
+
+  .sidebar-item-icon {
+    font-size: 18px;
+    width: 22px;
+  }
+
+  .sidebar-child {
+    font-size: 14px;
+    padding: 9px 24px;
+  }
+
+  .sidebar-collapsed .sidebar-item {
+    padding: 14px;
+  }
+
+  .sidebar-collapsed .sidebar-item.active {
+    margin: 2px 6px;
+    padding: 14px 10px;
+  }
+}

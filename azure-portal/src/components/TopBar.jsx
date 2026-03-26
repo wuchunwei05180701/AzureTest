@@ -279,7 +279,7 @@ const TopBar = ({ onToggleSidebar }) => {
                 onChange={setSelectedCountry}
                 placeholder={t('topbar.selectCountry')}
                 size="small"
-                style={{ width: 130, marginTop: 18 }}
+                style={{ width: 130 }}
                 options={countries.map((c) => ({
                   value: c.code,
                   label: `${t(`countries.${c.code}`) || c.name} (${c.code})`,
@@ -287,7 +287,7 @@ const TopBar = ({ onToggleSidebar }) => {
                 className="topbar-country-select"
               />
             ) : (
-              <Tag color="blue" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+              <Tag color="blue" style={{ margin: 0, fontSize: 11, lineHeight: '18px', paddingBottom: 4 }}>
                 <GlobalOutlined style={{ marginRight: 4 }} />
                 {countryName}
               </Tag>
